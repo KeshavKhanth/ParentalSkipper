@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.2.0",
+        "changelog": "Major UI improvements: HH:MM:SS time format, Reason field, Live search, Series Season/Episode dropdowns. See https://github.com/KeshavKhanth/ParentalSkipper/releases/tag/v1.0.2",
+        "targetAbi": "10.8.0.0",
+        "sourceUrl": "https://github.com/KeshavKhanth/ParentalSkipper/releases/download/v1.0.2/ParentalSkipper.dll",
+        "checksum": "7c678032af803497a266bff05767695e",
+        "timestamp": "2026-01-10T10:30:00Z"
+      },
+      {
         "version": "1.0.1.0",
         "changelog": "Fixed plugin loading issues with proper logging and safe database initialization. See https://github.com/KeshavKhanth/ParentalSkipper/releases/tag/v1.0.1",
         "targetAbi": "10.8.0.0",

@@ -18,44 +18,42 @@ jobs:
       run: |
         # Get the latest release info
         LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v1.0.0")
-        DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${LATEST_TAG}/ParentalSkipper.dll"
-        
+        DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${LATEST_TAG}/ParentalSkipper.dll"
+
         # Download the DLL to calculate checksum
         curl -L -o ParentalSkipper.dll "${DOWNLOAD_URL}" || echo "Release not found yet"
-        
+
         if [ -f ParentalSkipper.dll ]; then
           CHECKSUM=$(md5sum ParentalSkipper.dll | awk '{print $1}')
           rm ParentalSkipper.dll
         else
           CHECKSUM="00000000000000000000000000000000"
         fi
-        
+
         VERSION="${LATEST_TAG#v}"
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        
-        # Update manifest.json
-        cat > manifest.json << EOF
-[
-  {
-    "guid": "a741481e-3151-4ad9-968b-577317731032",
-    "name": "Parental Skipper",
-    "description": "Automatically skip manually defined scenes for content moderation. Allows you to skip awkward/embarrassing scenes in movies and shows when watching with family and friends.",
-    "overview": "Skip restricted scenes automatically during playback",
-    "owner": "KeshavKhanth",
-    "category": "General",
-    "versions": [
-      {
-        "version": "${VERSION}.0",
-        "changelog": "See https://github.com/${{ github.repository }}/releases/tag/${LATEST_TAG}",
-        "targetAbi": "10.8.0.0",
-        "sourceUrl": "${DOWNLOAD_URL}",
-        "checksum": "${CHECKSUM}",
-        "timestamp": "${TIMESTAMP}"
-      }
-    ]
-  }
-]
-EOF
+        REPO="${GITHUB_REPOSITORY}"
+
+        # Ensure jq is available
+        if ! command -v jq >/dev/null 2>&1; then
+          sudo apt-get update && sudo apt-get install -y jq
+        fi
+
+        # Build manifest.json using jq to avoid heredoc/YAML quoting issues
+        jq -n --arg guid "a741481e-3151-4ad9-968b-577317731032" \
+          --arg name "Parental Skipper" \
+          --arg description "Automatically skip manually defined scenes for content moderation. Allows you to skip awkward/embarrassing scenes in movies and shows when watching with family and friends." \
+          --arg overview "Skip restricted scenes automatically during playback" \
+          --arg owner "KeshavKhanth" \
+          --arg category "General" \
+          --arg version "${VERSION}.0" \
+          --arg changelog "See https://github.com/${REPO}/releases/tag/${LATEST_TAG}" \
+          --arg targetAbi "10.8.0.0" \
+          --arg sourceUrl "${DOWNLOAD_URL}" \
+          --arg checksum "${CHECKSUM}" \
+          --arg timestamp "${TIMESTAMP}" \
+          '[{guid:$guid, name:$name, description:$description, overview:$overview, owner:$owner, category:$category, versions:[{version:$version, changelog:$changelog, targetAbi:$targetAbi, sourceUrl:$sourceUrl, checksum:$checksum, timestamp:$timestamp}]}]' \
+          > manifest.json
     
     - name: Commit and push if changed
       run: |

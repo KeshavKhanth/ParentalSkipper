@@ -2,12 +2,14 @@
 
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AssemblyName>ParentalSkipper</AssemblyName>
     <AssemblyTitle>Parental Skipper</AssemblyTitle>
     <Product>Parental Skipper</Product>
     <Copyright>Copyright © 2024</Copyright>
     <Version>1.0.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
     <Authors>Jules</Authors>
+    <Description>Skip manually defined scenes for content moderation</Description>
   </PropertyGroup>
 
   <ItemGroup>

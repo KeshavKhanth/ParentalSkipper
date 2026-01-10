@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using Microsoft.Extensions.Logging;
 using ParentalSkipper.Configuration;
 
 namespace ParentalSkipper
@@ -13,17 +15,39 @@ namespace ParentalSkipper
         public static Plugin Instance { get; private set; }
 
         private readonly string _dbPath;
+        private readonly ILogger<Plugin> _logger;
+
         public string DbPath => _dbPath;
 
-        public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
+        public Plugin(
+            IApplicationPaths applicationPaths, 
+            IXmlSerializer xmlSerializer,
+            ILogger<Plugin> logger)
             : base(applicationPaths, xmlSerializer)
         {
             Instance = this;
-            _dbPath = System.IO.Path.Combine(applicationPaths.DataPath, "parental_skipper.db");
+            _logger = logger;
+
+            // Create plugin directory if it doesn't exist
+            var pluginDir = Path.Combine(applicationPaths.DataPath, "parentalskipper");
+            if (!Directory.Exists(pluginDir))
+            {
+                Directory.CreateDirectory(pluginDir);
+            }
+
+            _dbPath = Path.Combine(pluginDir, "parental_skipper.db");
             
-            // Initialize database
-            using var db = new Data.ParentalSkipperDbContext(_dbPath);
-            db.Initialize();
+            // Initialize database safely
+            try
+            {
+                using var db = new Data.ParentalSkipperDbContext(_dbPath);
+                db.Initialize();
+                _logger?.LogInformation("Parental Skipper database initialized at {DbPath}", _dbPath);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error initializing Parental Skipper database");
+            }
         }
 
         public override string Name => "Parental Skipper";

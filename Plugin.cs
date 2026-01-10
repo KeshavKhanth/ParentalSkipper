@@ -13,14 +13,17 @@ namespace ParentalSkipper
         public static Plugin Instance { get; private set; }
 
         private readonly string _dbPath;
-        public Data.SkipperRepository Repository { get; private set; }
+        public string DbPath => _dbPath;
 
         public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
             : base(applicationPaths, xmlSerializer)
         {
             Instance = this;
             _dbPath = System.IO.Path.Combine(applicationPaths.DataPath, "parental_skipper.db");
-            Repository = new Data.SkipperRepository(_dbPath);
+            
+            // Initialize database
+            using var db = new Data.ParentalSkipperDbContext(_dbPath);
+            db.Initialize();
         }
 
         public override string Name => "Parental Skipper";

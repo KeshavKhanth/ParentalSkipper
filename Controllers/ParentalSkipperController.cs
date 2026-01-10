@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using ParentalSkipper.Data;
@@ -34,7 +35,8 @@ namespace ParentalSkipper.Controllers
         [HttpGet("Segments/{itemId}")]
         public ActionResult<List<Segment>> GetSegments([FromRoute] Guid itemId)
         {
-            var segments = Plugin.Instance.Repository.GetSegments(itemId);
+            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance.DbPath);
+            var segments = db.Segments.Where(s => s.ItemId == itemId).ToList();
             return Ok(segments);
         }
 
@@ -47,14 +49,27 @@ namespace ParentalSkipper.Controllers
                 return BadRequest("Start time must be less than End time.");
             }
 
-            Plugin.Instance.Repository.AddSegment(request.ItemId, request.Start, request.End);
+            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance.DbPath);
+            db.Segments.Add(new Segment
+            {
+                ItemId = request.ItemId,
+                Start = request.Start,
+                End = request.End
+            });
+            db.SaveChanges();
             return Ok();
         }
 
         [HttpDelete("Segments/{id}")]
         public ActionResult DeleteSegment([FromRoute] int id)
         {
-            Plugin.Instance.Repository.DeleteSegment(id);
+            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance.DbPath);
+            var segment = db.Segments.Find(id);
+            if (segment == null)
+                return NotFound();
+            
+            db.Segments.Remove(segment);
+            db.SaveChanges();
             return Ok();
         }
     }

@@ -8,13 +8,20 @@ using System.Net.Mime;
 
 namespace ParentalSkipper.Controllers
 {
+    /// <summary>
+    /// Parental Skipper API controller for managing skip segments.
+    /// </summary>
     [ApiController]
     [Route("ParentalSkipper")]
-    [Authorize]
+    [Produces(MediaTypeNames.Application.Json)]
     public class ParentalSkipperController : ControllerBase
     {
+        /// <summary>
+        /// Gets the client-side skip script.
+        /// </summary>
+        /// <returns>JavaScript file content.</returns>
         [HttpGet("ClientScript")]
-        [AllowAnonymous]
+        [Produces("application/javascript")]
         public ActionResult GetClientScript()
         {
             var assembly = typeof(ParentalSkipperController).Assembly;
@@ -32,8 +39,12 @@ namespace ParentalSkipper.Controllers
             }
         }
 
+        /// <summary>
+        /// Gets all segments for a media item.
+        /// </summary>
+        /// <param name="itemId">The Jellyfin item ID.</param>
+        /// <returns>List of segments for the item.</returns>
         [HttpGet("Segments/{itemId}")]
-        [AllowAnonymous]
         public ActionResult<List<Segment>> GetSegments([FromRoute] Guid itemId)
         {
             using var db = new Data.ParentalSkipperDbContext(Plugin.Instance.DbPath);
@@ -41,8 +52,13 @@ namespace ParentalSkipper.Controllers
             return Ok(segments);
         }
 
+        /// <summary>
+        /// Adds a new segment for a media item.
+        /// </summary>
+        /// <param name="request">Segment data.</param>
+        /// <returns>Success status.</returns>
         [HttpPost("Segments")]
-        [AllowAnonymous]
+        [Consumes(MediaTypeNames.Application.Json)]
         public ActionResult AddSegment([FromBody] SegmentDto request)
         {
             // Simple validation
@@ -63,8 +79,12 @@ namespace ParentalSkipper.Controllers
             return Ok();
         }
 
+        /// <summary>
+        /// Deletes a segment by ID.
+        /// </summary>
+        /// <param name="id">Segment ID.</param>
+        /// <returns>Success status.</returns>
         [HttpDelete("Segments/{id}")]
-        [AllowAnonymous]
         public ActionResult DeleteSegment([FromRoute] int id)
         {
             using var db = new Data.ParentalSkipperDbContext(Plugin.Instance.DbPath);

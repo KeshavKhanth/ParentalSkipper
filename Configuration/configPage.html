@@ -175,38 +175,46 @@
             // Segment API calls
             function loadSegments(itemId) {
                 var apiClient = getApiClient();
-                var url = apiClient.getUrl('ParentalSkipper/Segments/' + itemId);
-                return apiClient.fetch({
-                    url: url,
-                    method: 'GET'
-                }).then(function(response) {
+                var url = apiClient.serverAddress() + '/ParentalSkipper/Segments/' + itemId;
+                return fetchWithAuth(url, 'GET').then(function(response) {
                     return response.json();
                 });
             }
 
             function addSegment(itemId, start, end, reason) {
                 var apiClient = getApiClient();
-                var url = apiClient.getUrl('ParentalSkipper/Segments');
-                return apiClient.fetch({
-                    url: url,
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        ItemId: itemId,
-                        Start: start,
-                        End: end,
-                        Reason: reason || ''
-                    })
+                var url = apiClient.serverAddress() + '/ParentalSkipper/Segments';
+                var body = JSON.stringify({
+                    ItemId: itemId,
+                    Start: start,
+                    End: end,
+                    Reason: reason || ''
                 });
+                return fetchWithAuth(url, 'POST', body);
             }
 
             function deleteSegment(id) {
                 var apiClient = getApiClient();
-                var url = apiClient.getUrl('ParentalSkipper/Segments/' + id);
-                return apiClient.fetch({
-                    url: url,
-                    method: 'DELETE'
-                });
+                var url = apiClient.serverAddress() + '/ParentalSkipper/Segments/' + id;
+                return fetchWithAuth(url, 'DELETE');
+            }
+
+            // Make an authenticated fetch to the Jellyfin server
+            function fetchWithAuth(url, method, body) {
+                var apiClient = getApiClient();
+                var reqInit = {
+                    method: method,
+                    headers: {
+                        'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"'
+                    }
+                };
+
+                if (method === 'POST' && body) {
+                    reqInit.headers['Content-Type'] = 'application/json';
+                    reqInit.body = body;
+                }
+
+                return fetch(url, reqInit);
             }
 
             // Render segments table

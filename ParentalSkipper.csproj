@@ -6,8 +6,8 @@
     <AssemblyTitle>Parental Skipper</AssemblyTitle>
     <Product>Parental Skipper</Product>
     <Copyright>Copyright © 2024</Copyright>
-    <Version>1.0.1.0</Version>
-    <FileVersion>1.0.1.0</FileVersion>
+    <Version>1.0.3.0</Version>
+    <FileVersion>1.0.3.0</FileVersion>
     <Authors>Jules</Authors>
     <Description>Skip manually defined scenes for content moderation</Description>
   </PropertyGroup>

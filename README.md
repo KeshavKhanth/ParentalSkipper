@@ -33,19 +33,29 @@
 
 ### Installation
 
+#### Method 1: Plugin Repository (Recommended)
+
 1. **Add Plugin Repository** to your Jellyfin server:
-   ```
-   [Add your repository URL here when available]
-   ```
+   - Go to **Dashboard** → **Plugins** → **Repositories**
+   - Click **+** to add a new repository
+   - Enter the following details:
+     - **Repository Name**: `Parental Skipper`
+     - **Repository URL**: `https://raw.githubusercontent.com/KeshavKhanth/ParentalSkipper/main/manifest.json`
+   - Click **Save**
 
 2. **Install the Plugin**:
    - Navigate to **Dashboard** → **Plugins** → **Catalog**
    - Find **Parental Skipper** and click **Install**
    - Restart Jellyfin
 
-3. **Verify Installation**:
-   - Go to **Dashboard** → **Plugins** → **Installed**
-   - Confirm "Parental Skipper" appears in the list
+#### Method 2: Manual Installation
+
+1. Download the latest `ParentalSkipper.dll` from [Releases](https://github.com/KeshavKhanth/ParentalSkipper/releases)
+2. Place it in your Jellyfin plugins directory:
+   - **Linux**: `/var/lib/jellyfin/plugins/Parental Skipper/`
+   - **Windows**: `%AppData%\Jellyfin\Server\plugins\Parental Skipper\`
+   - **Docker**: `/config/plugins/Parental Skipper/`
+3. Restart Jellyfin
 
 ### Basic Usage
 

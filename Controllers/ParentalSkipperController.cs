@@ -33,6 +33,7 @@ namespace ParentalSkipper.Controllers
         }
 
         [HttpGet("Segments/{itemId}")]
+        [AllowAnonymous]
         public ActionResult<List<Segment>> GetSegments([FromRoute] Guid itemId)
         {
             using var db = new Data.ParentalSkipperDbContext(Plugin.Instance.DbPath);
@@ -41,6 +42,7 @@ namespace ParentalSkipper.Controllers
         }
 
         [HttpPost("Segments")]
+        [AllowAnonymous]
         public ActionResult AddSegment([FromBody] SegmentDto request)
         {
             // Simple validation
@@ -62,6 +64,7 @@ namespace ParentalSkipper.Controllers
         }
 
         [HttpDelete("Segments/{id}")]
+        [AllowAnonymous]
         public ActionResult DeleteSegment([FromRoute] int id)
         {
             using var db = new Data.ParentalSkipperDbContext(Plugin.Instance.DbPath);

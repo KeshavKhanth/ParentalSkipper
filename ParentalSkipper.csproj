@@ -15,11 +15,19 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Dependencies usually provided by Jellyfin at runtime -->
-    <!-- In a real env, we would reference Jellyfin.Controller, Jellyfin.Model, MediaBrowser.Common -->
-    <PackageReference Include="Jellyfin.Model" Version="10.8.13" />
-    <PackageReference Include="Jellyfin.Controller" Version="10.8.13" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="6.0.0" />
+    <!-- Dependencies provided by Jellyfin at runtime - don't copy to output -->
+    <PackageReference Include="Jellyfin.Model" Version="10.8.13">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Jellyfin.Controller" Version="10.8.13">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Http" Version="6.0.0">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    
+    <!-- SQLite is needed and should be included -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="6.0.0" />
   </ItemGroup>
 
   <ItemGroup>

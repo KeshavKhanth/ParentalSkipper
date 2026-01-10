@@ -27,8 +27,14 @@ jobs:
     - name: Publish
       run: dotnet publish ParentalSkipper.csproj --configuration Release --no-build --output ./publish
 
+    - name: Create Release Archive
+      run: |
+        cd publish
+        zip -r ../ParentalSkipper.zip *
+        cd ..
+
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: ParentalSkipper-Plugin
-        path: ./publish/*.dll
+        path: ParentalSkipper.zip

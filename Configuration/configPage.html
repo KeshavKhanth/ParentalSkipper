@@ -1,0 +1,173 @@
+<div id="ParentalSkipperConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox,emby-linkbutton">
+    <div data-role="content">
+        <div class="content-primary">
+            <h1>Parental Skipper Configuration</h1>
+            
+            <div class="verticalSection">
+                <h2>Manage Restricted Scenes</h2>
+                <div class="inputContainer">
+                    <label class="inputLabel" for="txtSearch">Search Movie / Series</label>
+                    <div style="display:flex; gap:10px;">
+                        <input is="emby-input" type="text" id="txtSearch" label="Search" />
+                        <button is="emby-button" type="button" class="raised" id="btnSearch">Search</button>
+                    </div>
+                </div>
+
+                <div id="searchResults" style="margin-top: 20px;"></div>
+
+                <div id="editorSection" style="display:none; margin-top: 30px; border-top: 1px solid #ccc; padding-top: 20px;">
+                    <h3 id="selectedItemTitle"></h3>
+                    <input type="hidden" id="selectedItemId" />
+
+                    <h4>Existing Segments</h4>
+                    <table id="segmentsTable" class="tbl" style="width: 100%; text-align: left;">
+                        <thead>
+                            <tr>
+                                <th>Start (s)</th>
+                                <th>End (s)</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+
+                    <h4>Add New Segment</h4>
+                    <div style="display:flex; gap:10px; align-items: flex-end;">
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="txtStart">Start Time (seconds)</label>
+                            <input is="emby-input" type="number" step="0.1" id="txtStart" />
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="txtEnd">End Time (seconds)</label>
+                            <input is="emby-input" type="number" step="0.1" id="txtEnd" />
+                        </div>
+                        <button is="emby-button" type="button" class="raised" id="btnAddSegment">Add</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="verticalSection">
+                <h2>Installation</h2>
+                <p>To enable auto-skipping, you must ensure the <code>parental-skipper.js</code> script is loaded in your Jellyfin Web Client. You may need to manually add it to your <code>index.html</code> or use a script injection plugin.</p>
+                <p>Script URL: <code>/ParentalSkipper/ClientScript</code></p>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            var pluginId = "a741481e-3151-4ad9-968b-577317731032";
+
+            function getApiClient() {
+                return window.ApiClient;
+            }
+
+            function searchItems(query) {
+                var apiClient = getApiClient();
+                return apiClient.getItems(apiClient.getCurrentUserId(), {
+                    SearchTerm: query,
+                    IncludeItemTypes: "Movie,Episode",
+                    Limit: 10,
+                    Recursive: true
+                });
+            }
+
+            function loadSegments(itemId) {
+                var apiClient = getApiClient();
+                var url = apiClient.getUrl('ParentalSkipper/Segments/' + itemId);
+                return apiClient.fetch({
+                    url: url,
+                    method: 'GET'
+                }).then(function(response) {
+                    return response.json();
+                });
+            }
+
+            function addSegment(itemId, start, end) {
+                var apiClient = getApiClient();
+                var url = apiClient.getUrl('ParentalSkipper/Segments');
+                return apiClient.fetch({
+                    url: url,
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        ItemId: itemId,
+                        Start: parseFloat(start),
+                        End: parseFloat(end)
+                    })
+                });
+            }
+
+            function deleteSegment(id) {
+                var apiClient = getApiClient();
+                var url = apiClient.getUrl('ParentalSkipper/Segments/' + id);
+                return apiClient.fetch({
+                    url: url,
+                    method: 'DELETE'
+                });
+            }
+
+            function renderSegments(segments) {
+                var tbody = document.querySelector('#segmentsTable tbody');
+                tbody.innerHTML = '';
+                segments.forEach(function(s) {
+                    var tr = document.createElement('tr');
+                    tr.innerHTML = '<td>' + s.Start + '</td><td>' + s.End + '</td><td><button is="emby-button" type="button" class="raised" onclick="deleteSegmentClick(' + s.Id + ')">Delete</button></td>';
+                    tbody.appendChild(tr);
+                });
+            }
+            
+            // Expose for onclick
+            window.deleteSegmentClick = function(id) {
+                deleteSegment(id).then(function() {
+                    var itemId = document.querySelector('#selectedItemId').value;
+                    loadSegments(itemId).then(renderSegments);
+                });
+            };
+
+            document.querySelector('#ParentalSkipperConfigPage').addEventListener('pageshow', function () {
+                var page = this;
+
+                page.querySelector('#btnSearch').addEventListener('click', function () {
+                    var query = page.querySelector('#txtSearch').value;
+                    searchItems(query).then(function (result) {
+                        var div = page.querySelector('#searchResults');
+                        div.innerHTML = '';
+                        result.Items.forEach(function (item) {
+                            var btn = document.createElement('button');
+                            btn.is = 'emby-button';
+                            btn.className = 'raised';
+                            btn.style.margin = '5px';
+                            btn.textContent = item.Name;
+                            btn.addEventListener('click', function () {
+                                page.querySelector('#selectedItemId').value = item.Id;
+                                page.querySelector('#selectedItemTitle').textContent = 'Editing: ' + item.Name;
+                                page.querySelector('#editorSection').style.display = 'block';
+                                loadSegments(item.Id).then(renderSegments);
+                            });
+                            div.appendChild(btn);
+                        });
+                    });
+                });
+
+                page.querySelector('#btnAddSegment').addEventListener('click', function () {
+                    var itemId = page.querySelector('#selectedItemId').value;
+                    var start = page.querySelector('#txtStart').value;
+                    var end = page.querySelector('#txtEnd').value;
+                    
+                    if(start && end) {
+                        addSegment(itemId, start, end).then(function() {
+                             loadSegments(itemId).then(renderSegments);
+                             page.querySelector('#txtStart').value = '';
+                             page.querySelector('#txtEnd').value = '';
+                        }).catch(function(err) {
+                            alert('Error adding segment. Ensure End > Start.');
+                        });
+                    }
+                });
+            });
+        })();
+    </script>
+</div>

@@ -6,7 +6,7 @@
   "compilationOptions": {},
   "targets": {
     ".NETCoreApp,Version=v6.0": {
-      "ParentalSkipper/1.0.0.0": {
+      "ParentalSkipper/1.0.1.0": {
         "dependencies": {
           "Microsoft.EntityFrameworkCore.Sqlite": "6.0.0"
         },
@@ -106,7 +106,7 @@
     }
   },
   "libraries": {
-    "ParentalSkipper/1.0.0.0": {
+    "ParentalSkipper/1.0.1.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

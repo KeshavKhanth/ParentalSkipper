@@ -30,6 +30,7 @@ namespace ParentalSkipper.Data
                 
                 entity.Property(e => e.Start).IsRequired();
                 entity.Property(e => e.End).IsRequired();
+                entity.Property(e => e.Reason).HasMaxLength(500);
             });
 
             base.OnModelCreating(modelBuilder);

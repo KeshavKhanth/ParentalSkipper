@@ -54,7 +54,8 @@ namespace ParentalSkipper.Controllers
             {
                 ItemId = request.ItemId,
                 Start = request.Start,
-                End = request.End
+                End = request.End,
+                Reason = request.Reason ?? string.Empty
             });
             db.SaveChanges();
             return Ok();
@@ -79,5 +80,6 @@ namespace ParentalSkipper.Controllers
         public Guid ItemId { get; set; }
         public double Start { get; set; }
         public double End { get; set; }
+        public string Reason { get; set; }
     }
 }

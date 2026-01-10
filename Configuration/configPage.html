@@ -5,26 +5,56 @@
             
             <div class="verticalSection">
                 <h2>Manage Restricted Scenes</h2>
-                <div class="inputContainer">
+                <div class="inputContainer" style="position: relative;">
                     <label class="inputLabel" for="txtSearch">Search Movie / Series</label>
-                    <div style="display:flex; gap:10px;">
-                        <input is="emby-input" type="text" id="txtSearch" label="Search" />
-                        <button is="emby-button" type="button" class="raised" id="btnSearch">Search</button>
+                    <input is="emby-input" type="text" id="txtSearch" placeholder="Start typing to search..." autocomplete="off" />
+                    <div id="searchSuggestions" style="display:none; position:absolute; top:100%; left:0; right:0; background:#1a1a1a; border:1px solid #444; border-radius:4px; max-height:300px; overflow-y:auto; z-index:1000;"></div>
+                </div>
+
+                <!-- Movies Section -->
+                <div id="moviesSection" style="display:none; margin-top: 20px;">
+                    <h3>🎬 Movies</h3>
+                    <div id="moviesList" style="display:flex; flex-wrap:wrap; gap:10px;"></div>
+                </div>
+
+                <!-- Series Section -->
+                <div id="seriesSection" style="display:none; margin-top: 20px;">
+                    <h3>📺 Series</h3>
+                    <div id="seriesList" style="display:flex; flex-wrap:wrap; gap:10px;"></div>
+                    
+                    <div id="seriesSelectors" style="display:none; margin-top:15px; padding:15px; background:#1a1a1a; border-radius:8px;">
+                        <h4 id="selectedSeriesName" style="margin-bottom:15px;"></h4>
+                        <div style="display:flex; gap:15px; flex-wrap:wrap;">
+                            <div class="selectContainer" style="min-width:150px;">
+                                <label class="selectLabel" for="selectSeason">Season</label>
+                                <select is="emby-select" id="selectSeason" class="emby-select">
+                                    <option value="">Select Season</option>
+                                </select>
+                            </div>
+                            <div class="selectContainer" style="min-width:250px;">
+                                <label class="selectLabel" for="selectEpisode">Episode</label>
+                                <select is="emby-select" id="selectEpisode" class="emby-select" disabled>
+                                    <option value="">Select Episode</option>
+                                </select>
+                            </div>
+                            <button is="emby-button" type="button" class="raised" id="btnSelectEpisode" disabled style="align-self:flex-end;">Edit Segments</button>
+                        </div>
                     </div>
                 </div>
 
-                <div id="searchResults" style="margin-top: 20px;"></div>
-
-                <div id="editorSection" style="display:none; margin-top: 30px; border-top: 1px solid #ccc; padding-top: 20px;">
+                <!-- Segment Editor -->
+                <div id="editorSection" style="display:none; margin-top: 30px; border-top: 1px solid #444; padding-top: 20px;">
                     <h3 id="selectedItemTitle"></h3>
                     <input type="hidden" id="selectedItemId" />
 
                     <h4>Existing Segments</h4>
+                    <div id="noSegmentsMsg" style="color:#888; font-style:italic; display:none;">No segments defined yet.</div>
                     <table id="segmentsTable" class="tbl" style="width: 100%; text-align: left;">
                         <thead>
                             <tr>
-                                <th>Start (s)</th>
-                                <th>End (s)</th>
+                                <th>Start</th>
+                                <th>End</th>
+                                <th>Reason</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
@@ -32,24 +62,36 @@
                     </table>
 
                     <h4>Add New Segment</h4>
-                    <div style="display:flex; gap:10px; align-items: flex-end;">
+                    <div style="display:flex; gap:10px; align-items: flex-end; flex-wrap: wrap;">
                         <div class="inputContainer">
-                            <label class="inputLabel" for="txtStart">Start Time (seconds)</label>
-                            <input is="emby-input" type="number" step="0.1" id="txtStart" />
+                            <label class="inputLabel" for="txtStart">Start Time (HH:MM:SS)</label>
+                            <input is="emby-input" type="text" id="txtStart" placeholder="00:15:30" />
                         </div>
                         <div class="inputContainer">
-                            <label class="inputLabel" for="txtEnd">End Time (seconds)</label>
-                            <input is="emby-input" type="number" step="0.1" id="txtEnd" />
+                            <label class="inputLabel" for="txtEnd">End Time (HH:MM:SS)</label>
+                            <input is="emby-input" type="text" id="txtEnd" placeholder="00:16:45" />
                         </div>
-                        <button is="emby-button" type="button" class="raised" id="btnAddSegment">Add</button>
+                        <div class="inputContainer" style="flex-grow:1; min-width:200px;">
+                            <label class="inputLabel" for="txtReason">Reason (optional)</label>
+                            <input is="emby-input" type="text" id="txtReason" placeholder="e.g., Inappropriate scene" />
+                        </div>
+                        <button is="emby-button" type="button" class="raised" id="btnAddSegment">Add Segment</button>
                     </div>
                 </div>
             </div>
             
-            <div class="verticalSection">
-                <h2>Installation</h2>
-                <p>To enable auto-skipping, you must ensure the <code>parental-skipper.js</code> script is loaded in your Jellyfin Web Client. You may need to manually add it to your <code>index.html</code> or use a script injection plugin.</p>
-                <p>Script URL: <code>/ParentalSkipper/ClientScript</code></p>
+            <div class="verticalSection" style="margin-top:30px;">
+                <h2>Client Script Status</h2>
+                <div style="padding:15px; background:#1a1a1a; border-radius:8px;">
+                    <p><strong>Script Endpoint:</strong> <code>/ParentalSkipper/ClientScript</code></p>
+                    <p style="margin-top:10px;"><strong>Installation Options:</strong></p>
+                    <ol style="margin-left:20px; line-height:1.8;">
+                        <li><strong>Recommended:</strong> Install <a href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank" style="color:#00a4dc;">File Transformation Plugin</a> for automatic script injection.</li>
+                        <li><strong>Manual:</strong> Add to your Jellyfin web client's <code>index.html</code>:<br/>
+                            <code style="display:block; margin-top:5px; padding:10px; background:#333; border-radius:4px;">&lt;script src="/ParentalSkipper/ClientScript"&gt;&lt;/script&gt;</code>
+                        </li>
+                    </ol>
+                </div>
             </div>
         </div>
     </div>
@@ -57,21 +99,80 @@
     <script type="text/javascript">
         (function () {
             var pluginId = "a741481e-3151-4ad9-968b-577317731032";
+            var searchTimeout = null;
+            var currentSeriesId = null;
+            var seasonsData = {};
+            var episodesData = {};
 
             function getApiClient() {
                 return window.ApiClient;
             }
 
-            function searchItems(query) {
+            // Time conversion utilities
+            function timeToSeconds(timeStr) {
+                if (!timeStr) return null;
+                var parts = timeStr.trim().split(':');
+                if (parts.length !== 3) return null;
+                var hours = parseInt(parts[0], 10);
+                var minutes = parseInt(parts[1], 10);
+                var seconds = parseFloat(parts[2]);
+                if (isNaN(hours) || isNaN(minutes) || isNaN(seconds)) return null;
+                if (minutes >= 60 || seconds >= 60) return null;
+                return hours * 3600 + minutes * 60 + seconds;
+            }
+
+            function secondsToTime(totalSeconds) {
+                var h = Math.floor(totalSeconds / 3600);
+                var m = Math.floor((totalSeconds % 3600) / 60);
+                var s = Math.floor(totalSeconds % 60);
+                return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+            }
+
+            // Search for Movies
+            function searchMovies(query) {
                 var apiClient = getApiClient();
                 return apiClient.getItems(apiClient.getCurrentUserId(), {
                     SearchTerm: query,
-                    IncludeItemTypes: "Movie,Episode",
-                    Limit: 10,
-                    Recursive: true
+                    IncludeItemTypes: "Movie",
+                    Limit: 20,
+                    Recursive: true,
+                    SortBy: "SortName"
                 });
             }
 
+            // Search for Series
+            function searchSeries(query) {
+                var apiClient = getApiClient();
+                return apiClient.getItems(apiClient.getCurrentUserId(), {
+                    SearchTerm: query,
+                    IncludeItemTypes: "Series",
+                    Limit: 20,
+                    Recursive: true,
+                    SortBy: "SortName"
+                });
+            }
+
+            // Get Seasons for a Series
+            function getSeasons(seriesId) {
+                var apiClient = getApiClient();
+                return apiClient.getItems(apiClient.getCurrentUserId(), {
+                    ParentId: seriesId,
+                    IncludeItemTypes: "Season",
+                    SortBy: "SortName"
+                });
+            }
+
+            // Get Episodes for a Season
+            function getEpisodes(seasonId) {
+                var apiClient = getApiClient();
+                return apiClient.getItems(apiClient.getCurrentUserId(), {
+                    ParentId: seasonId,
+                    IncludeItemTypes: "Episode",
+                    SortBy: "IndexNumber"
+                });
+            }
+
+            // Segment API calls
             function loadSegments(itemId) {
                 var apiClient = getApiClient();
                 var url = apiClient.getUrl('ParentalSkipper/Segments/' + itemId);
@@ -83,19 +184,18 @@
                 });
             }
 
-            function addSegment(itemId, start, end) {
+            function addSegment(itemId, start, end, reason) {
                 var apiClient = getApiClient();
                 var url = apiClient.getUrl('ParentalSkipper/Segments');
                 return apiClient.fetch({
                     url: url,
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         ItemId: itemId,
-                        Start: parseFloat(start),
-                        End: parseFloat(end)
+                        Start: start,
+                        End: end,
+                        Reason: reason || ''
                     })
                 });
             }
@@ -109,63 +209,349 @@
                 });
             }
 
+            // Render segments table
             function renderSegments(segments) {
                 var tbody = document.querySelector('#segmentsTable tbody');
+                var noMsg = document.querySelector('#noSegmentsMsg');
                 tbody.innerHTML = '';
+                
+                if (!segments || segments.length === 0) {
+                    noMsg.style.display = 'block';
+                    document.querySelector('#segmentsTable').style.display = 'none';
+                    return;
+                }
+                
+                noMsg.style.display = 'none';
+                document.querySelector('#segmentsTable').style.display = 'table';
+                
                 segments.forEach(function(s) {
                     var tr = document.createElement('tr');
-                    tr.innerHTML = '<td>' + s.Start + '</td><td>' + s.End + '</td><td><button is="emby-button" type="button" class="raised" onclick="deleteSegmentClick(' + s.Id + ')">Delete</button></td>';
+                    tr.innerHTML = 
+                        '<td>' + secondsToTime(s.Start) + '</td>' +
+                        '<td>' + secondsToTime(s.End) + '</td>' +
+                        '<td>' + (s.Reason || '<em style="color:#888;">-</em>') + '</td>' +
+                        '<td><button is="emby-button" type="button" class="raised button-delete" data-id="' + s.Id + '">Delete</button></td>';
                     tbody.appendChild(tr);
                 });
-            }
-            
-            // Expose for onclick
-            window.deleteSegmentClick = function(id) {
-                deleteSegment(id).then(function() {
-                    var itemId = document.querySelector('#selectedItemId').value;
-                    loadSegments(itemId).then(renderSegments);
-                });
-            };
 
-            document.querySelector('#ParentalSkipperConfigPage').addEventListener('pageshow', function () {
-                var page = this;
-
-                page.querySelector('#btnSearch').addEventListener('click', function () {
-                    var query = page.querySelector('#txtSearch').value;
-                    searchItems(query).then(function (result) {
-                        var div = page.querySelector('#searchResults');
-                        div.innerHTML = '';
-                        result.Items.forEach(function (item) {
-                            var btn = document.createElement('button');
-                            btn.is = 'emby-button';
-                            btn.className = 'raised';
-                            btn.style.margin = '5px';
-                            btn.textContent = item.Name;
-                            btn.addEventListener('click', function () {
-                                page.querySelector('#selectedItemId').value = item.Id;
-                                page.querySelector('#selectedItemTitle').textContent = 'Editing: ' + item.Name;
-                                page.querySelector('#editorSection').style.display = 'block';
-                                loadSegments(item.Id).then(renderSegments);
+                // Attach delete handlers
+                tbody.querySelectorAll('.button-delete').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var segId = this.getAttribute('data-id');
+                        if (confirm('Delete this segment?')) {
+                            deleteSegment(segId).then(function() {
+                                var itemId = document.querySelector('#selectedItemId').value;
+                                loadSegments(itemId).then(renderSegments);
                             });
-                            div.appendChild(btn);
-                        });
+                        }
                     });
                 });
+            }
 
+            // Show editor for selected item
+            function selectItem(itemId, itemName, itemType) {
+                document.querySelector('#selectedItemId').value = itemId;
+                var typeLabel = itemType === 'Movie' ? '🎬' : '📺';
+                document.querySelector('#selectedItemTitle').textContent = typeLabel + ' Editing: ' + itemName;
+                document.querySelector('#editorSection').style.display = 'block';
+                document.querySelector('#editorSection').scrollIntoView({ behavior: 'smooth' });
+                loadSegments(itemId).then(renderSegments);
+            }
+
+            // Render movie results
+            function renderMovies(movies) {
+                var container = document.querySelector('#moviesList');
+                container.innerHTML = '';
+                
+                if (!movies || movies.length === 0) {
+                    document.querySelector('#moviesSection').style.display = 'none';
+                    return;
+                }
+                
+                document.querySelector('#moviesSection').style.display = 'block';
+                
+                movies.forEach(function(movie) {
+                    var btn = document.createElement('button');
+                    btn.setAttribute('is', 'emby-button');
+                    btn.className = 'raised';
+                    btn.style.cssText = 'margin:5px; padding:10px 15px;';
+                    btn.innerHTML = movie.Name + (movie.ProductionYear ? ' <span style="color:#888;">(' + movie.ProductionYear + ')</span>' : '');
+                    btn.addEventListener('click', function() {
+                        selectItem(movie.Id, movie.Name, 'Movie');
+                    });
+                    container.appendChild(btn);
+                });
+            }
+
+            // Render series results
+            function renderSeries(seriesList) {
+                var container = document.querySelector('#seriesList');
+                container.innerHTML = '';
+                
+                if (!seriesList || seriesList.length === 0) {
+                    document.querySelector('#seriesSection').style.display = 'none';
+                    return;
+                }
+                
+                document.querySelector('#seriesSection').style.display = 'block';
+                document.querySelector('#seriesSelectors').style.display = 'none';
+                
+                seriesList.forEach(function(series) {
+                    var btn = document.createElement('button');
+                    btn.setAttribute('is', 'emby-button');
+                    btn.className = 'raised';
+                    btn.style.cssText = 'margin:5px; padding:10px 15px;';
+                    btn.innerHTML = series.Name + (series.ProductionYear ? ' <span style="color:#888;">(' + series.ProductionYear + ')</span>' : '');
+                    btn.addEventListener('click', function() {
+                        selectSeriesItem(series.Id, series.Name);
+                    });
+                    container.appendChild(btn);
+                });
+            }
+
+            // Select a series and load its seasons
+            function selectSeriesItem(seriesId, seriesName) {
+                currentSeriesId = seriesId;
+                document.querySelector('#selectedSeriesName').textContent = '📺 ' + seriesName;
+                document.querySelector('#seriesSelectors').style.display = 'block';
+                document.querySelector('#editorSection').style.display = 'none';
+                
+                var seasonSelect = document.querySelector('#selectSeason');
+                var episodeSelect = document.querySelector('#selectEpisode');
+                var btnSelect = document.querySelector('#btnSelectEpisode');
+                
+                seasonSelect.innerHTML = '<option value="">Loading seasons...</option>';
+                episodeSelect.innerHTML = '<option value="">Select Episode</option>';
+                episodeSelect.disabled = true;
+                btnSelect.disabled = true;
+                
+                getSeasons(seriesId).then(function(result) {
+                    seasonSelect.innerHTML = '<option value="">Select Season</option>';
+                    seasonsData = {};
+                    
+                    if (result.Items.length === 0) {
+                        seasonSelect.innerHTML = '<option value="">No seasons found</option>';
+                        return;
+                    }
+                    
+                    result.Items.forEach(function(season) {
+                        seasonsData[season.Id] = season;
+                        var opt = document.createElement('option');
+                        opt.value = season.Id;
+                        opt.textContent = season.Name || ('Season ' + season.IndexNumber);
+                        seasonSelect.appendChild(opt);
+                    });
+                });
+            }
+
+            // Load episodes when season is selected
+            function onSeasonChange(seasonId) {
+                var episodeSelect = document.querySelector('#selectEpisode');
+                var btnSelect = document.querySelector('#btnSelectEpisode');
+                
+                if (!seasonId) {
+                    episodeSelect.innerHTML = '<option value="">Select Episode</option>';
+                    episodeSelect.disabled = true;
+                    btnSelect.disabled = true;
+                    return;
+                }
+                
+                episodeSelect.innerHTML = '<option value="">Loading episodes...</option>';
+                episodeSelect.disabled = true;
+                
+                getEpisodes(seasonId).then(function(result) {
+                    episodeSelect.innerHTML = '<option value="">Select Episode</option>';
+                    episodeSelect.disabled = false;
+                    episodesData = {};
+                    
+                    if (result.Items.length === 0) {
+                        episodeSelect.innerHTML = '<option value="">No episodes found</option>';
+                        episodeSelect.disabled = true;
+                        return;
+                    }
+                    
+                    result.Items.forEach(function(episode) {
+                        episodesData[episode.Id] = episode;
+                        var opt = document.createElement('option');
+                        opt.value = episode.Id;
+                        var epNum = episode.IndexNumber ? ('E' + episode.IndexNumber + ' - ') : '';
+                        opt.textContent = epNum + episode.Name;
+                        episodeSelect.appendChild(opt);
+                    });
+                });
+            }
+
+            // Live search with debounce
+            function performSearch(query) {
+                if (!query || query.length < 2) {
+                    document.querySelector('#moviesSection').style.display = 'none';
+                    document.querySelector('#seriesSection').style.display = 'none';
+                    document.querySelector('#searchSuggestions').style.display = 'none';
+                    return;
+                }
+                
+                Promise.all([searchMovies(query), searchSeries(query)]).then(function(results) {
+                    var movies = results[0].Items;
+                    var series = results[1].Items;
+                    
+                    renderMovies(movies);
+                    renderSeries(series);
+                    
+                    // Also show quick suggestions dropdown
+                    renderSuggestions(movies, series);
+                });
+            }
+
+            // Render search suggestions dropdown
+            function renderSuggestions(movies, series) {
+                var container = document.querySelector('#searchSuggestions');
+                container.innerHTML = '';
+                
+                if ((!movies || movies.length === 0) && (!series || series.length === 0)) {
+                    container.style.display = 'none';
+                    return;
+                }
+                
+                if (movies && movies.length > 0) {
+                    var movieHeader = document.createElement('div');
+                    movieHeader.style.cssText = 'padding:8px 12px; color:#888; font-size:12px; border-bottom:1px solid #333;';
+                    movieHeader.textContent = '🎬 MOVIES';
+                    container.appendChild(movieHeader);
+                    
+                    movies.slice(0, 5).forEach(function(movie) {
+                        var item = document.createElement('div');
+                        item.style.cssText = 'padding:10px 12px; cursor:pointer; border-bottom:1px solid #333;';
+                        item.textContent = movie.Name + (movie.ProductionYear ? ' (' + movie.ProductionYear + ')' : '');
+                        item.addEventListener('mouseenter', function() { this.style.background = '#333'; });
+                        item.addEventListener('mouseleave', function() { this.style.background = 'transparent'; });
+                        item.addEventListener('click', function() {
+                            container.style.display = 'none';
+                            selectItem(movie.Id, movie.Name, 'Movie');
+                        });
+                        container.appendChild(item);
+                    });
+                }
+                
+                if (series && series.length > 0) {
+                    var seriesHeader = document.createElement('div');
+                    seriesHeader.style.cssText = 'padding:8px 12px; color:#888; font-size:12px; border-bottom:1px solid #333;';
+                    seriesHeader.textContent = '📺 SERIES';
+                    container.appendChild(seriesHeader);
+                    
+                    series.slice(0, 5).forEach(function(show) {
+                        var item = document.createElement('div');
+                        item.style.cssText = 'padding:10px 12px; cursor:pointer; border-bottom:1px solid #333;';
+                        item.textContent = show.Name + (show.ProductionYear ? ' (' + show.ProductionYear + ')' : '');
+                        item.addEventListener('mouseenter', function() { this.style.background = '#333'; });
+                        item.addEventListener('mouseleave', function() { this.style.background = 'transparent'; });
+                        item.addEventListener('click', function() {
+                            container.style.display = 'none';
+                            selectSeriesItem(show.Id, show.Name);
+                        });
+                        container.appendChild(item);
+                    });
+                }
+                
+                container.style.display = 'block';
+            }
+
+            // Page initialization
+            document.querySelector('#ParentalSkipperConfigPage').addEventListener('pageshow', function () {
+                var page = this;
+                var txtSearch = page.querySelector('#txtSearch');
+                var selectSeason = page.querySelector('#selectSeason');
+                var selectEpisode = page.querySelector('#selectEpisode');
+                var btnSelectEpisode = page.querySelector('#btnSelectEpisode');
+                var suggestions = page.querySelector('#searchSuggestions');
+
+                // Live search with debounce
+                txtSearch.addEventListener('input', function() {
+                    clearTimeout(searchTimeout);
+                    var query = this.value;
+                    searchTimeout = setTimeout(function() {
+                        performSearch(query);
+                    }, 300);
+                });
+
+                // Hide suggestions when clicking outside
+                document.addEventListener('click', function(e) {
+                    if (!txtSearch.contains(e.target) && !suggestions.contains(e.target)) {
+                        suggestions.style.display = 'none';
+                    }
+                });
+
+                // Show suggestions on focus if there's a query
+                txtSearch.addEventListener('focus', function() {
+                    if (this.value.length >= 2) {
+                        performSearch(this.value);
+                    }
+                });
+
+                // Season dropdown change
+                selectSeason.addEventListener('change', function() {
+                    onSeasonChange(this.value);
+                });
+
+                // Episode dropdown change
+                selectEpisode.addEventListener('change', function() {
+                    btnSelectEpisode.disabled = !this.value;
+                });
+
+                // Select episode button
+                btnSelectEpisode.addEventListener('click', function() {
+                    var episodeId = selectEpisode.value;
+                    if (episodeId && episodesData[episodeId]) {
+                        var episode = episodesData[episodeId];
+                        var seasonName = seasonsData[selectSeason.value] ? seasonsData[selectSeason.value].Name : '';
+                        var fullName = seasonName + ' - ' + episode.Name;
+                        selectItem(episodeId, fullName, 'Episode');
+                    }
+                });
+
+                // Add segment button
                 page.querySelector('#btnAddSegment').addEventListener('click', function () {
                     var itemId = page.querySelector('#selectedItemId').value;
-                    var start = page.querySelector('#txtStart').value;
-                    var end = page.querySelector('#txtEnd').value;
+                    var startStr = page.querySelector('#txtStart').value;
+                    var endStr = page.querySelector('#txtEnd').value;
+                    var reason = page.querySelector('#txtReason').value;
                     
-                    if(start && end) {
-                        addSegment(itemId, start, end).then(function() {
-                             loadSegments(itemId).then(renderSegments);
-                             page.querySelector('#txtStart').value = '';
-                             page.querySelector('#txtEnd').value = '';
-                        }).catch(function(err) {
-                            alert('Error adding segment. Ensure End > Start.');
-                        });
+                    if (!itemId) {
+                        alert('Please select a movie or episode first.');
+                        return;
                     }
+
+                    if (!startStr || !endStr) {
+                        alert('Please enter both Start and End times in HH:MM:SS format.');
+                        return;
+                    }
+
+                    var startSeconds = timeToSeconds(startStr);
+                    var endSeconds = timeToSeconds(endStr);
+
+                    if (startSeconds === null) {
+                        alert('Invalid Start time format. Use HH:MM:SS (e.g., 00:15:30).');
+                        return;
+                    }
+
+                    if (endSeconds === null) {
+                        alert('Invalid End time format. Use HH:MM:SS (e.g., 00:16:45).');
+                        return;
+                    }
+
+                    if (startSeconds >= endSeconds) {
+                        alert('Start time must be less than End time.');
+                        return;
+                    }
+
+                    addSegment(itemId, startSeconds, endSeconds, reason).then(function() {
+                        loadSegments(itemId).then(renderSegments);
+                        page.querySelector('#txtStart').value = '';
+                        page.querySelector('#txtEnd').value = '';
+                        page.querySelector('#txtReason').value = '';
+                    }).catch(function(err) {
+                        console.error('Error adding segment:', err);
+                        alert('Error adding segment. Please check console for details.');
+                    });
                 });
             });
         })();

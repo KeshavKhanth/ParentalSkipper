@@ -39,6 +39,39 @@ namespace ParentalSkipper.Data
         public void Initialize()
         {
             Database.EnsureCreated();
+            
+            // Add Reason column if it doesn't exist (migration for existing databases)
+            try
+            {
+                using var connection = Database.GetDbConnection();
+                connection.Open();
+                using var command = connection.CreateCommand();
+                
+                // Check if Reason column exists
+                command.CommandText = "PRAGMA table_info(Segments)";
+                using var reader = command.ExecuteReader();
+                bool reasonExists = false;
+                while (reader.Read())
+                {
+                    if (reader.GetString(1) == "Reason")
+                    {
+                        reasonExists = true;
+                        break;
+                    }
+                }
+                reader.Close();
+                
+                // Add Reason column if missing
+                if (!reasonExists)
+                {
+                    command.CommandText = "ALTER TABLE Segments ADD COLUMN Reason TEXT NULL";
+                    command.ExecuteNonQuery();
+                }
+            }
+            catch (Exception)
+            {
+                // Silently ignore if migration fails - likely already applied
+            }
         }
     }
 }

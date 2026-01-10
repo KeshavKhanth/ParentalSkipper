@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using ParentalSkipper.Data;
 using System.Net.Mime;
 
@@ -11,6 +12,7 @@ namespace ParentalSkipper.Controllers
     /// <summary>
     /// Parental Skipper API controller for managing skip segments.
     /// </summary>
+    [Authorize(Policy = "RequiresElevation")]
     [ApiController]
     [Route("ParentalSkipper")]
     [Produces(MediaTypeNames.Application.Json)]
@@ -21,7 +23,9 @@ namespace ParentalSkipper.Controllers
         /// </summary>
         /// <returns>JavaScript file content.</returns>
         [HttpGet("ClientScript")]
+        [AllowAnonymous]
         [Produces("application/javascript")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public ActionResult GetClientScript()
         {
             var assembly = typeof(ParentalSkipperController).Assembly;
@@ -45,6 +49,7 @@ namespace ParentalSkipper.Controllers
         /// <param name="itemId">The Jellyfin item ID.</param>
         /// <returns>List of segments for the item.</returns>
         [HttpGet("Segments/{itemId}")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
         public ActionResult<List<Segment>> GetSegments([FromRoute] Guid itemId)
         {
             using var db = new Data.ParentalSkipperDbContext(Plugin.Instance.DbPath);
@@ -58,6 +63,8 @@ namespace ParentalSkipper.Controllers
         /// <param name="request">Segment data.</param>
         /// <returns>Success status.</returns>
         [HttpPost("Segments")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [Consumes(MediaTypeNames.Application.Json)]
         public ActionResult AddSegment([FromBody] SegmentDto request)
         {
@@ -83,6 +90,8 @@ namespace ParentalSkipper.Controllers
         /// Deletes a segment by ID.
         /// </summary>
         /// <param name="id">Segment ID.</param>
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
         /// <returns>Success status.</returns>
         [HttpDelete("Segments/{id}")]
         public ActionResult DeleteSegment([FromRoute] int id)
@@ -103,6 +112,6 @@ namespace ParentalSkipper.Controllers
         public Guid ItemId { get; set; }
         public double Start { get; set; }
         public double End { get; set; }
-        public string Reason { get; set; }
+        public string? Reason { get; set; }
     }
 }

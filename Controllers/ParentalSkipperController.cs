@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using ParentalSkipper.Data;
+using ParentalSkipper.Manager;
 using System.Net.Mime;
 using Microsoft.Extensions.Logging;
 
@@ -13,18 +15,22 @@ namespace ParentalSkipper.Controllers
     /// <summary>
     /// Parental Skipper API controller for managing skip segments.
     /// </summary>
-    [Authorize(Policy = "RequiresElevation")]
     [ApiController]
     [Route("ParentalSkipper")]
     [Produces(MediaTypeNames.Application.Json)]
     public class ParentalSkipperController : ControllerBase
     {
         private readonly ILogger<ParentalSkipperController> _logger;
+        private readonly MediaSegmentUpdateManager _segmentUpdateManager;
 
-        public ParentalSkipperController(ILogger<ParentalSkipperController> logger)
+        public ParentalSkipperController(
+            ILogger<ParentalSkipperController> logger,
+            MediaSegmentUpdateManager segmentUpdateManager)
         {
             _logger = logger;
+            _segmentUpdateManager = segmentUpdateManager;
         }
+
         /// <summary>
         /// Gets the client-side skip script.
         /// </summary>
@@ -56,25 +62,27 @@ namespace ParentalSkipper.Controllers
         /// <param name="itemId">The Jellyfin item ID.</param>
         /// <returns>List of segments for the item.</returns>
         [HttpGet("Segments/{itemId}")]
+        [AllowAnonymous]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public ActionResult<List<Segment>> GetSegments([FromRoute] Guid itemId)
         {
-            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance.DbPath);
+            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance!.DbPath);
             var segments = db.Segments.Where(s => s.ItemId == itemId).ToList();
             _logger.LogInformation("[Parental Skipper] Retrieved {Count} segments for item {ItemId}", segments.Count, itemId);
             return Ok(segments);
         }
 
         /// <summary>
-        /// Adds a new segment for a media item.
+        /// Adds a new segment for a media item and triggers segment refresh.
         /// </summary>
         /// <param name="request">Segment data.</param>
         /// <returns>Success status.</returns>
         [HttpPost("Segments")]
+        [Authorize(Policy = "RequiresElevation")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [Consumes(MediaTypeNames.Application.Json)]
-        public ActionResult AddSegment([FromBody] SegmentDto request)
+        public async Task<ActionResult> AddSegment([FromBody] SegmentDto request)
         {
             // Simple validation
             if (request.Start >= request.End)
@@ -83,7 +91,7 @@ namespace ParentalSkipper.Controllers
                 return BadRequest("Start time must be less than End time.");
             }
 
-            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance.DbPath);
+            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance!.DbPath);
             var segment = new Segment
             {
                 ItemId = request.ItemId,
@@ -94,23 +102,27 @@ namespace ParentalSkipper.Controllers
             db.Segments.Add(segment);
             db.SaveChanges();
             
-            _logger.LogInformation("[Parental Skipper] Added segment for item {ItemId}: {Start}s - {End}s (Reason: {Reason})", 
-                request.ItemId, request.Start, request.End, request.Reason ?? "none");
+            _logger.LogInformation("[Parental Skipper] Added segment for item {ItemId}: {Start}s - {End}s", 
+                request.ItemId, request.Start, request.End);
+
+            // Trigger Jellyfin to refresh segments for this item
+            await _segmentUpdateManager.UpdateSegmentsForItemAsync(request.ItemId).ConfigureAwait(false);
             
             return Ok();
         }
 
         /// <summary>
-        /// Deletes a segment by ID.
+        /// Deletes a segment by ID and triggers segment refresh.
         /// </summary>
         /// <param name="id">Segment ID.</param>
-        [ProducesResponseType(StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
         /// <returns>Success status.</returns>
         [HttpDelete("Segments/{id}")]
-        public ActionResult DeleteSegment([FromRoute] int id)
+        [Authorize(Policy = "RequiresElevation")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult> DeleteSegment([FromRoute] int id)
         {
-            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance.DbPath);
+            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance!.DbPath);
             var segment = db.Segments.Find(id);
             if (segment == null)
             {
@@ -118,11 +130,16 @@ namespace ParentalSkipper.Controllers
                 return NotFound();
             }
             
-            _logger.LogInformation("[Parental Skipper] Deleted segment {Id} for item {ItemId}: {Start}s - {End}s", 
-                segment.Id, segment.ItemId, segment.Start, segment.End);
+            var itemId = segment.ItemId;
+            _logger.LogInformation("[Parental Skipper] Deleted segment {Id} for item {ItemId}", 
+                segment.Id, segment.ItemId);
             
             db.Segments.Remove(segment);
             db.SaveChanges();
+
+            // Trigger Jellyfin to refresh segments for this item
+            await _segmentUpdateManager.UpdateSegmentsForItemAsync(itemId).ConfigureAwait(false);
+
             return Ok();
         }
     }

@@ -1,15 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <AssemblyName>ParentalSkipper</AssemblyName>
     <AssemblyTitle>Parental Skipper</AssemblyTitle>
     <Product>Parental Skipper</Product>
     <Copyright>Copyright © 2024</Copyright>
-    <Version>1.0.3.0</Version>
-    <FileVersion>1.0.3.0</FileVersion>
+    <Version>1.0.4.0</Version>
+    <FileVersion>1.0.4.0</FileVersion>
     <Authors>Jules</Authors>
     <Description>Skip manually defined scenes for content moderation</Description>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,24 +18,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Dependencies provided by Jellyfin at runtime - don't copy to output -->
-    <PackageReference Include="Jellyfin.Model" Version="10.8.13">
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
-    <PackageReference Include="Jellyfin.Controller" Version="10.8.13">
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
-    <PackageReference Include="Microsoft.Extensions.Http" Version="6.0.0">
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
+    <!-- Jellyfin 10.11.x dependencies -->
+    <PackageReference Include="Jellyfin.Model" Version="10.11.*-*" />
+    <PackageReference Include="Jellyfin.Controller" Version="10.11.*-*" />
     
-    <!-- Entity Framework Core - provided by Jellyfin, don't copy -->
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="6.0.0">
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="6.0.0">
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
+    <!-- Entity Framework Core -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.11" />
+    
+    <!-- JSON serialization -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
   <ItemGroup>

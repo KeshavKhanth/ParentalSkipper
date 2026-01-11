@@ -13,7 +13,7 @@ namespace ParentalSkipper.Data
             Segments = Set<Segment>();
         }
 
-        public DbSet<Segment> Segments { get; set; }
+        public DbSet<Segment> Segments { get; set; } = null!;
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {

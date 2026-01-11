@@ -101,6 +101,7 @@ For new releases, [manifest.json](../manifest.json) requires:
 - `timestamp`: ISO 8601 UTC
 
 Keep versions array sorted newest-first (Jellyfin convention).
+Never add new .md file for summaration of changes
 
 ## Integration Points
 

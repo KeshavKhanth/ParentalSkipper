@@ -117,6 +117,7 @@
             var currentSeriesId = null;
             var seasonsData = {};
             var episodesData = {};
+            var editingSegmentId = null; // Track if we are editing a segment
 
             function getApiClient() {
                 return window.ApiClient;
@@ -239,6 +240,31 @@
                 return fetch(url, reqInit);
             }
 
+            function editSegment(segment) {
+                document.querySelector('#txtStart').value = secondsToTime(segment.Start);
+                document.querySelector('#txtEnd').value = secondsToTime(segment.End);
+                document.querySelector('#txtReason').value = segment.Reason || '';
+
+                editingSegmentId = segment.Id;
+
+                var btn = document.querySelector('#btnAddSegment');
+                btn.textContent = 'Update Segment';
+                btn.style.background = '#eab308'; // yellow/amber for update state
+
+                document.querySelector('#txtStart').focus();
+            }
+
+            function resetEditState() {
+                editingSegmentId = null;
+                var btn = document.querySelector('#btnAddSegment');
+                btn.textContent = 'Add Segment';
+                btn.style.background = ''; // reset to default class style
+
+                document.querySelector('#txtStart').value = '';
+                document.querySelector('#txtEnd').value = '';
+                document.querySelector('#txtReason').value = '';
+            }
+
             // Render segments table
             function renderSegments(segments) {
                 var tbody = document.querySelector('#segmentsTable tbody');
@@ -256,11 +282,43 @@
                 
                 segments.forEach(function(s) {
                     var tr = document.createElement('tr');
-                    tr.innerHTML = 
-                        '<td>' + secondsToTime(s.Start) + '</td>' +
-                        '<td>' + secondsToTime(s.End) + '</td>' +
-                        '<td>' + (s.Reason || '<em style="color:#888;">-</em>') + '</td>' +
-                        '<td><button is="emby-button" type="button" class="raised button-delete" data-id="' + s.Id + '">Delete</button></td>';
+
+                    var tdStart = document.createElement('td');
+                    tdStart.textContent = secondsToTime(s.Start);
+
+                    var tdEnd = document.createElement('td');
+                    tdEnd.textContent = secondsToTime(s.End);
+
+                    var tdReason = document.createElement('td');
+                    tdReason.innerHTML = s.Reason || '<em style="color:#888;">-</em>';
+
+                    var tdActions = document.createElement('td');
+
+                    // Edit Button (Pencil)
+                    var btnEdit = document.createElement('button');
+                    btnEdit.type = 'button';
+                    btnEdit.className = 'fab mini';
+                    btnEdit.style.cssText = 'background: transparent; color: inherit; margin-right: 5px;';
+                    btnEdit.title = 'Edit';
+                    btnEdit.innerHTML = '&#9998;'; // Pencil character
+                    btnEdit.onclick = function() { editSegment(s); };
+
+                    // Delete Button
+                    var btnDelete = document.createElement('button');
+                    btnDelete.setAttribute('is', 'emby-button');
+                    btnDelete.type = 'button';
+                    btnDelete.className = 'raised button-delete';
+                    btnDelete.setAttribute('data-id', s.Id);
+                    btnDelete.textContent = 'Delete';
+
+                    tdActions.appendChild(btnEdit);
+                    tdActions.appendChild(btnDelete);
+
+                    tr.appendChild(tdStart);
+                    tr.appendChild(tdEnd);
+                    tr.appendChild(tdReason);
+                    tr.appendChild(tdActions);
+
                     tbody.appendChild(tr);
                 });
 
@@ -272,6 +330,7 @@
                             deleteSegment(segId).then(function() {
                                 var itemId = document.querySelector('#selectedItemId').value;
                                 loadSegments(itemId).then(renderSegments);
+                                if (editingSegmentId == segId) resetEditState();
                             });
                         }
                     });
@@ -285,6 +344,7 @@
                 document.querySelector('#selectedItemTitle').textContent = typeLabel + ' Editing: ' + itemName;
                 document.querySelector('#editorSection').style.display = 'block';
                 document.querySelector('#editorSection').scrollIntoView({ behavior: 'smooth' });
+                resetEditState();
                 loadSegments(itemId).then(renderSegments);
             }
 
@@ -334,13 +394,15 @@
 
                             var header = document.createElement('div');
                             header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; cursor: pointer;';
-                            header.innerHTML = `
-                                <div>
-                                    <h3 style="margin: 0;">${item.Name} <span style="font-size: 0.8em; color: #888; font-weight: normal;">(${item.ProductionYear || 'Unknown'})</span></h3>
-                                    <div style="font-size: 0.9em; color: #aaa; margin-top: 5px;">${count} Segment${count !== 1 ? 's' : ''}</div>
-                                </div>
-                                <button is="emby-button" type="button" class="raised" style="min-width: 80px;">Expand</button>
-                            `;
+
+                            // USING STRING CONCATENATION to avoid template literal issues
+                            var headerHtml = '<div>';
+                            headerHtml += '<h3 style="margin: 0;">' + item.Name + ' <span style="font-size: 0.8em; color: #888; font-weight: normal;">(' + (item.ProductionYear || 'Unknown') + ')</span></h3>';
+                            headerHtml += '<div style="font-size: 0.9em; color: #aaa; margin-top: 5px;">' + count + ' Segment' + (count !== 1 ? 's' : '') + '</div>';
+                            headerHtml += '</div>';
+                            headerHtml += '<button is="emby-button" type="button" class="raised" style="min-width: 80px;">Expand</button>';
+
+                            header.innerHTML = headerHtml;
 
                             var details = document.createElement('div');
                             details.style.cssText = 'display: none; margin-top: 15px; border-top: 1px solid #444; padding-top: 10px;';
@@ -348,7 +410,7 @@
                             // Build simple table for details
                             var table = '<table class="tbl" style="width: 100%; text-align: left;"><thead><tr><th>Start</th><th>End</th><th>Reason</th></tr></thead><tbody>';
                             itemSegments.forEach(function(s) {
-                                table += `<tr><td>${secondsToTime(s.Start)}</td><td>${secondsToTime(s.End)}</td><td>${s.Reason || '-'}</td></tr>`;
+                                table += '<tr><td>' + secondsToTime(s.Start) + '</td><td>' + secondsToTime(s.End) + '</td><td>' + (s.Reason || '-') + '</td></tr>';
                             });
                             table += '</tbody></table>';
 
@@ -603,6 +665,7 @@
                     tabConfigured.style.background = '#333';
                     sectionManage.style.display = 'block';
                     sectionConfigured.style.display = 'none';
+                    resetEditState(); // Clear edit state when switching tabs
                 });
 
                 tabConfigured.addEventListener('click', function() {
@@ -692,15 +755,28 @@
                         return;
                     }
 
-                    addSegment(itemId, startSeconds, endSeconds, reason).then(function() {
-                        loadSegments(itemId).then(renderSegments);
-                        page.querySelector('#txtStart').value = '';
-                        page.querySelector('#txtEnd').value = '';
-                        page.querySelector('#txtReason').value = '';
-                    }).catch(function(err) {
-                        console.error('Error adding segment:', err);
-                        alert('Error adding segment. Please check console for details.');
-                    });
+                    // Logic to handle update vs add
+                    var performAdd = function() {
+                        addSegment(itemId, startSeconds, endSeconds, reason).then(function() {
+                            loadSegments(itemId).then(renderSegments);
+                            resetEditState();
+                        }).catch(function(err) {
+                            console.error('Error adding segment:', err);
+                            alert('Error adding segment. Please check console for details.');
+                        });
+                    };
+
+                    if (editingSegmentId) {
+                        // Update flow: Delete old -> Add new
+                        deleteSegment(editingSegmentId).then(function() {
+                            performAdd();
+                        }).catch(function(err) {
+                             console.error('Error updating segment (delete phase):', err);
+                             alert('Error updating segment.');
+                        });
+                    } else {
+                        performAdd();
+                    }
                 });
             });
         })();

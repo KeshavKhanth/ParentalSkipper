@@ -2,11 +2,20 @@
     'use strict';
 
     // DEBUG: Visual indicator that script is loaded
-    const debugOverlay = document.createElement('div');
-    debugOverlay.style.cssText = 'position:fixed;top:0;left:0;background:purple;color:white;z-index:999999;padding:5px;font-size:12px;pointer-events:none;opacity:0.8;';
-    debugOverlay.textContent = 'Parental Skipper v2.0 Loaded';
-    document.body.appendChild(debugOverlay);
-    setTimeout(() => debugOverlay.remove(), 5000);
+    function showDebugOverlay() {
+        if (!document.body) return;
+        const debugOverlay = document.createElement('div');
+        debugOverlay.style.cssText = 'position:fixed;top:0;left:0;background:purple;color:white;z-index:999999;padding:5px;font-size:12px;pointer-events:none;opacity:0.8;';
+        debugOverlay.textContent = 'Parental Skipper v2.0 Loaded';
+        document.body.appendChild(debugOverlay);
+        setTimeout(() => debugOverlay.remove(), 5000);
+    }
+    
+    if (document.body) {
+        showDebugOverlay();
+    } else {
+        document.addEventListener('DOMContentLoaded', showDebugOverlay);
+    }
 
     console.log('%c[Parental Skipper] Script loaded and initialized (v2.0).', 'color: #8b5cf6; font-size: 14px; font-weight: bold;');
 
@@ -17,8 +26,10 @@
     let isEnabled = localStorage.getItem('parentalSkipperEnabled') !== 'false'; // Default ON
     let toggleButton = null;
     let skipNotification = null;
+    let notificationTimeout = null;
     let videoElement = null;
     let lastDetectedItemId = null;
+    let urlCheckInterval = null;
 
     // --- Network Interception for Item ID Detection ---
     const originalFetch = window.fetch;
@@ -41,8 +52,9 @@
     function extractItemIdFromUrlString(url, source) {
         // Look for item ID in URL patterns
         // Common patterns: /Items/{id}, /PlaybackInfo?ItemId={id}, etc.
-        const itemMatch = url.match(/\/Items\/([a-f0-9-]{32})/i) ||
-                          url.match(/[?&](?:ItemId|id)=([a-f0-9-]{32})/i);
+        // Standard UUID format: 8-4-4-4-12 hex digits = 36 characters with hyphens
+        const itemMatch = url.match(/\/Items\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i) ||
+                          url.match(/[?&](?:ItemId|id)=([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
 
         if (itemMatch && itemMatch[1]) {
             // Filter out user IDs if possible (usually standard Item IDs are UUIDs, User IDs are too, but context matters)
@@ -74,7 +86,11 @@
         console.log(`%c[Parental Skipper] Fetching segments for item: ${itemId}`, 'color: #0ea5e9; font-weight: bold;');
 
         const apiClient = window.ApiClient;
-        const baseUrl = apiClient?.serverAddress ? apiClient.serverAddress() : '';
+        if (!apiClient || typeof apiClient.serverAddress !== 'function') {
+            console.warn('[Parental Skipper] ApiClient is not available or missing serverAddress(); cannot fetch segments.');
+            return;
+        }
+        const baseUrl = apiClient.serverAddress();
         const url = baseUrl + '/ParentalSkipper/Segments/' + itemId;
 
         const headers = {};
@@ -103,6 +119,12 @@
 
     // --- UI Elements ---
     function showSkipNotification(segment) {
+        // Clear any pending timeout to prevent race condition
+        if (notificationTimeout) {
+            clearTimeout(notificationTimeout);
+            notificationTimeout = null;
+        }
+        
         const existing = document.getElementById('parental-skipper-notification');
         if (existing) existing.remove();
 
@@ -120,11 +142,16 @@
         skipNotification.innerHTML = `⏩ Skipping: ${reason}`;
         document.body.appendChild(skipNotification);
 
-        setTimeout(() => {
+        notificationTimeout = setTimeout(() => {
             if (skipNotification && skipNotification.parentNode) {
                 skipNotification.style.opacity = '0';
-                setTimeout(() => skipNotification.remove(), 500);
+                setTimeout(() => {
+                    if (skipNotification && skipNotification.parentNode) {
+                        skipNotification.remove();
+                    }
+                }, 500);
             }
+            notificationTimeout = null;
         }, 3000);
     }
 
@@ -178,10 +205,10 @@
         // Seek
         videoElement.currentTime = end + 0.5; // +0.5s buffer
 
-        // Cooldown
+        // Cooldown (extended to handle short segments and prevent re-skip)
         setTimeout(() => {
             isSkipping = false;
-        }, 1500);
+        }, 2500);
     }
 
     function checkForSkip() {
@@ -215,10 +242,19 @@
             if (item && item.Id) return item.Id;
         }
 
-        // Priority 3: URL params (id=...)
-        const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
-        if (urlParams.has('id')) return urlParams.get('id');
-        if (urlParams.has('videoId')) return urlParams.get('videoId');
+        // Priority 3: URL params (check both search and hash)
+        const searchQuery = window.location.search ? window.location.search.substring(1) : '';
+        const hashQuery = window.location.hash && window.location.hash.includes('?')
+            ? window.location.hash.split('?')[1]
+            : '';
+
+        const searchParams = new URLSearchParams(searchQuery);
+        if (searchParams.has('id')) return searchParams.get('id');
+        if (searchParams.has('videoId')) return searchParams.get('videoId');
+
+        const hashParams = new URLSearchParams(hashQuery);
+        if (hashParams.has('id')) return hashParams.get('id');
+        if (hashParams.has('videoId')) return hashParams.get('videoId');
 
         // Priority 4: Network interception cache
         if (lastDetectedItemId) return lastDetectedItemId;
@@ -274,15 +310,21 @@
 
         // Check if video was added
         for (const mutation of mutations) {
+            if (videoFound) break;
+            
             for (const node of mutation.addedNodes) {
-                if (node.nodeName === 'VIDEO') {
-                    attachToVideo(node);
-                    videoFound = true;
-                } else if (node.querySelectorAll) {
-                    const v = node.querySelector('video');
-                    if (v) {
-                        attachToVideo(v);
+                if (videoFound) break;
+                
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    if (node.nodeName === 'VIDEO') {
+                        attachToVideo(node);
                         videoFound = true;
+                    } else if (node.querySelector) {
+                        const v = node.querySelector('video');
+                        if (v) {
+                            attachToVideo(v);
+                            videoFound = true;
+                        }
                     }
                 }
             }
@@ -295,16 +337,28 @@
         }
     });
 
-    // Start Observing
-    observer.observe(document.body, { childList: true, subtree: true });
+    // Start Observing (wait for body if needed)
+    function startObserver() {
+        if (!document.body) {
+            console.warn('[Parental Skipper] Waiting for document.body to initialize observer...');
+            document.addEventListener('DOMContentLoaded', startObserver);
+            return;
+        }
+        observer.observe(document.body, { childList: true, subtree: true });
+        console.log('[Parental Skipper] MutationObserver started');
+    }
+    
+    startObserver();
 
     // Initial Scan
-    const initialVideo = document.querySelector('video');
-    if (initialVideo) attachToVideo(initialVideo);
+    if (document.body) {
+        const initialVideo = document.querySelector('video');
+        if (initialVideo) attachToVideo(initialVideo);
+    }
 
-    // Global URL change detection (SPA)
+    // Global URL change detection (SPA) - store interval ID for cleanup
     let lastUrl = window.location.href;
-    setInterval(() => {
+    urlCheckInterval = setInterval(() => {
         if (window.location.href !== lastUrl) {
             lastUrl = window.location.href;
             console.log('[Parental Skipper] 🧭 URL Changed');
@@ -316,5 +370,16 @@
             }, 500);
         }
     }, 1000);
+
+    // Cleanup on unload
+    window.addEventListener('beforeunload', () => {
+        if (urlCheckInterval) {
+            clearInterval(urlCheckInterval);
+            urlCheckInterval = null;
+        }
+        if (observer) {
+            observer.disconnect();
+        }
+    });
 
 })();

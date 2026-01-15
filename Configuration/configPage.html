@@ -91,7 +91,15 @@
                  <h2>My Configured Items</h2>
                  <p style="color: #ccc; margin-bottom: 20px;">Items with active skip segments.</p>
                  <div id="loadingConfigured" style="display: none;">Loading...</div>
-                 <div id="configuredList" style="display: flex; flex-direction: column; gap: 15px;"></div>
+                 <!-- Grid Layout -->
+                 <div id="configuredList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;"></div>
+
+                 <!-- Pagination -->
+                 <div id="paginationControls" style="display: none; justify-content: center; align-items: center; margin-top: 20px; gap: 15px;">
+                     <button is="emby-button" type="button" class="raised" id="btnPrevPage">Previous</button>
+                     <span id="pageIndicator" style="font-weight: bold;">Page 1</span>
+                     <button is="emby-button" type="button" class="raised" id="btnNextPage">Next</button>
+                 </div>
             </div>
             
             <div class="verticalSection" style="margin-top:30px;">
@@ -118,6 +126,12 @@
             var seasonsData = {};
             var episodesData = {};
             var editingSegmentId = null; // Track if we are editing a segment
+
+            // Pagination state
+            var currentPage = 1;
+            var itemsPerPage = 15;
+            var allConfiguredItemIds = [];
+            var segmentsMapGlobal = {};
 
             function getApiClient() {
                 return window.ApiClient;
@@ -348,99 +362,152 @@
                 loadSegments(itemId).then(renderSegments);
             }
 
-            // Render Configured Items
-            function renderConfiguredItems() {
+            // --- Pagination Logic ---
+            function loadPage(page) {
+                currentPage = page;
                 var container = document.querySelector('#configuredList');
                 var loader = document.querySelector('#loadingConfigured');
 
                 container.innerHTML = '';
                 loader.style.display = 'block';
 
+                // Calculate slice
+                var start = (page - 1) * itemsPerPage;
+                var end = start + itemsPerPage;
+                var pageIds = allConfiguredItemIds.slice(start, end);
+
+                // Fetch metadata for this page
+                var apiClient = getApiClient();
+                apiClient.getItems(apiClient.getCurrentUserId(), {
+                    Ids: pageIds.join(','),
+                    Recursive: true
+                }).then(function(result) {
+                    loader.style.display = 'none';
+                    var items = result.Items;
+
+                    if (!items || items.length === 0) {
+                         if (page === 1) {
+                             container.innerHTML = '<div style="padding: 20px; color: #888;">No items found in library (orphaned IDs).</div>';
+                         }
+                         return;
+                    }
+
+                    items.forEach(function(item) {
+                        // Normalize Item ID (strip hyphens) to match Key
+                        var lookupId = item.Id.replace(/-/g, '').toLowerCase();
+                        var itemSegments = segmentsMapGlobal[lookupId] || [];
+                        var count = itemSegments.length;
+
+                        var card = document.createElement('div');
+                        card.style.cssText = 'background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; display: flex; flex-direction: column;';
+
+                        // Header
+                        var header = document.createElement('div');
+                        header.style.cssText = 'display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;';
+
+                        var headerHtml = '<div>';
+                        headerHtml += '<h3 style="margin: 0; font-size: 1.1em;">' + item.Name + '</h3>';
+                        headerHtml += '<div style="font-size: 0.85em; color: #888;">' + (item.ProductionYear || 'Unknown') + '</div>';
+                        headerHtml += '</div>';
+                        headerHtml += '<div style="font-size: 0.9em; background: #333; padding: 2px 6px; border-radius: 4px;">' + count + '</div>';
+
+                        header.innerHTML = headerHtml;
+
+                        // Expand/Collapse Area
+                        var details = document.createElement('div');
+                        details.style.cssText = 'display: none; margin-top: auto; border-top: 1px solid #444; padding-top: 10px;';
+
+                        var table = '<table class="tbl" style="width: 100%; text-align: left; font-size: 0.9em;"><thead><tr><th>Start</th><th>End</th></tr></thead><tbody>';
+                        itemSegments.forEach(function(s) {
+                            table += '<tr><td>' + secondsToTime(s.Start) + '</td><td>' + secondsToTime(s.End) + '</td></tr>';
+                        });
+                        table += '</tbody></table>';
+
+                        var editBtn = document.createElement('button');
+                        editBtn.setAttribute('is', 'emby-button');
+                        editBtn.className = 'raised';
+                        editBtn.style.cssText = 'margin-top: 10px; width: 100%; background: #00a4dc; font-size: 0.9em; padding: 5px;';
+                        editBtn.textContent = 'Edit';
+                        editBtn.onclick = function() {
+                            document.querySelector('#tabManage').click();
+                            selectItem(item.Id, item.Name, item.Type);
+                        };
+
+                        details.innerHTML = table;
+                        details.appendChild(editBtn);
+
+                        // Footer (Toggle)
+                        var footer = document.createElement('div');
+                        footer.style.cssText = 'margin-top: 10px; text-align: center; cursor: pointer; color: #ccc; font-size: 0.9em;';
+                        footer.textContent = 'Show Details';
+                        footer.onclick = function() {
+                            var isHidden = details.style.display === 'none';
+                            details.style.display = isHidden ? 'block' : 'none';
+                            footer.textContent = isHidden ? 'Hide Details' : 'Show Details';
+                        };
+
+                        card.appendChild(header);
+                        card.appendChild(details);
+                        card.appendChild(footer);
+                        container.appendChild(card);
+                    });
+
+                    updatePaginationControls();
+                });
+            }
+
+            function updatePaginationControls() {
+                var container = document.querySelector('#paginationControls');
+                var btnPrev = document.querySelector('#btnPrevPage');
+                var btnNext = document.querySelector('#btnNextPage');
+                var indicator = document.querySelector('#pageIndicator');
+
+                var totalPages = Math.ceil(allConfiguredItemIds.length / itemsPerPage);
+                
+                if (totalPages <= 1) {
+                    container.style.display = 'none';
+                    return;
+                }
+                
+                container.style.display = 'flex';
+                indicator.textContent = 'Page ' + currentPage + ' of ' + totalPages;
+                
+                btnPrev.disabled = currentPage === 1;
+                btnNext.disabled = currentPage === totalPages;
+            }
+
+            // Render Configured Items (Initial Load)
+            function renderConfiguredItems() {
+                var container = document.querySelector('#configuredList');
+                var loader = document.querySelector('#loadingConfigured');
+                
+                container.innerHTML = '';
+                loader.style.display = 'block';
+                
                 loadAllSegments().then(function(groupedSegments) {
-                    var itemIds = Object.keys(groupedSegments);
-                    if (itemIds.length === 0) {
+                    var rawIds = Object.keys(groupedSegments);
+                    if (rawIds.length === 0) {
                         loader.style.display = 'none';
                         container.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">No items configured yet.</div>';
                         return;
                     }
 
-                    // Normalize Keys to lowercase for easier lookup (since we suspect ID mismatch)
-                    var segmentsMap = {};
-                    itemIds.forEach(function(key) {
-                        segmentsMap[key.toLowerCase()] = groupedSegments[key];
+                    // 1. Prepare Global Map (Normalize Keys: remove hyphens, lowercase)
+                    // Jellyfin GUIDs in API are usually without hyphens.
+                    // C# Dictionary keys via JSON usually have hyphens.
+                    segmentsMapGlobal = {};
+                    allConfiguredItemIds = rawIds; // Keep raw for fetching if needed, or normalized?
+                    // We must pass the IDs to Jellyfin API. Jellyfin API accepts both usually, but let's check.
+                    // Ideally we normalize the MAP keys to stripped-lowercase so we can lookup whatever item.Id comes back.
+                    
+                    rawIds.forEach(function(key) {
+                        var normalizedKey = key.replace(/-/g, '').toLowerCase();
+                        segmentsMapGlobal[normalizedKey] = groupedSegments[key];
                     });
-
-                    // Fetch item details from Jellyfin
-                    var apiClient = getApiClient();
-                    apiClient.getItems(apiClient.getCurrentUserId(), {
-                        Ids: itemIds.join(','),
-                        Recursive: true
-                    }).then(function(result) {
-                        loader.style.display = 'none';
-                        var items = result.Items;
-
-                        if (!items || items.length === 0) {
-                             container.innerHTML = '<div style="color: #ccc;">Items found in DB but not in Library (Ids might have changed?).</div>';
-                             return;
-                        }
-
-                        items.forEach(function(item) {
-                            var itemIdLower = item.Id.toLowerCase();
-                            var itemSegments = segmentsMap[itemIdLower] || [];
-                            var count = itemSegments.length;
-
-                            var card = document.createElement('div');
-                            card.style.cssText = 'background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;';
-
-                            var header = document.createElement('div');
-                            header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; cursor: pointer;';
-
-                            // USING STRING CONCATENATION to avoid template literal issues
-                            var headerHtml = '<div>';
-                            headerHtml += '<h3 style="margin: 0;">' + item.Name + ' <span style="font-size: 0.8em; color: #888; font-weight: normal;">(' + (item.ProductionYear || 'Unknown') + ')</span></h3>';
-                            headerHtml += '<div style="font-size: 0.9em; color: #aaa; margin-top: 5px;">' + count + ' Segment' + (count !== 1 ? 's' : '') + '</div>';
-                            headerHtml += '</div>';
-                            headerHtml += '<button is="emby-button" type="button" class="raised" style="min-width: 80px;">Expand</button>';
-
-                            header.innerHTML = headerHtml;
-
-                            var details = document.createElement('div');
-                            details.style.cssText = 'display: none; margin-top: 15px; border-top: 1px solid #444; padding-top: 10px;';
-
-                            // Build simple table for details
-                            var table = '<table class="tbl" style="width: 100%; text-align: left;"><thead><tr><th>Start</th><th>End</th><th>Reason</th></tr></thead><tbody>';
-                            itemSegments.forEach(function(s) {
-                                table += '<tr><td>' + secondsToTime(s.Start) + '</td><td>' + secondsToTime(s.End) + '</td><td>' + (s.Reason || '-') + '</td></tr>';
-                            });
-                            table += '</tbody></table>';
-
-                            // Edit Button
-                            var editBtn = document.createElement('button');
-                            editBtn.setAttribute('is', 'emby-button');
-                            editBtn.className = 'raised';
-                            editBtn.style.cssText = 'margin-top: 10px; width: 100%; background: #00a4dc;';
-                            editBtn.textContent = 'Edit Segments';
-                            editBtn.onclick = function() {
-                                // Switch to manage tab
-                                document.querySelector('#tabManage').click();
-                                // Select this item
-                                selectItem(item.Id, item.Name, item.Type);
-                            };
-
-                            details.innerHTML = table;
-                            details.appendChild(editBtn);
-
-                            header.onclick = function() {
-                                var isHidden = details.style.display === 'none';
-                                details.style.display = isHidden ? 'block' : 'none';
-                                header.querySelector('button').textContent = isHidden ? 'Collapse' : 'Expand';
-                            };
-
-                            card.appendChild(header);
-                            card.appendChild(details);
-                            container.appendChild(card);
-                        });
-                    });
+                    
+                    // 2. Start at Page 1
+                    loadPage(1);
+                    
                 }).catch(function(err) {
                     console.error(err);
                     loader.style.display = 'none';
@@ -448,206 +515,16 @@
                 });
             }
 
-            // Render movie results
-            function renderMovies(movies) {
-                var container = document.querySelector('#moviesList');
-                container.innerHTML = '';
-                
-                if (!movies || movies.length === 0) {
-                    document.querySelector('#moviesSection').style.display = 'none';
-                    return;
-                }
-                
-                document.querySelector('#moviesSection').style.display = 'block';
-                
-                movies.forEach(function(movie) {
-                    var btn = document.createElement('button');
-                    btn.setAttribute('is', 'emby-button');
-                    btn.className = 'raised';
-                    btn.style.cssText = 'margin:5px; padding:10px 15px;';
-                    btn.innerHTML = movie.Name + (movie.ProductionYear ? ' <span style="color:#888;">(' + movie.ProductionYear + ')</span>' : '');
-                    btn.addEventListener('click', function() {
-                        selectItem(movie.Id, movie.Name, 'Movie');
-                    });
-                    container.appendChild(btn);
-                });
-            }
-
-            // Render series results
-            function renderSeries(seriesList) {
-                var container = document.querySelector('#seriesList');
-                container.innerHTML = '';
-                
-                if (!seriesList || seriesList.length === 0) {
-                    document.querySelector('#seriesSection').style.display = 'none';
-                    return;
-                }
-                
-                document.querySelector('#seriesSection').style.display = 'block';
-                document.querySelector('#seriesSelectors').style.display = 'none';
-                
-                seriesList.forEach(function(series) {
-                    var btn = document.createElement('button');
-                    btn.setAttribute('is', 'emby-button');
-                    btn.className = 'raised';
-                    btn.style.cssText = 'margin:5px; padding:10px 15px;';
-                    btn.innerHTML = series.Name + (series.ProductionYear ? ' <span style="color:#888;">(' + series.ProductionYear + ')</span>' : '');
-                    btn.addEventListener('click', function() {
-                        selectSeriesItem(series.Id, series.Name);
-                    });
-                    container.appendChild(btn);
-                });
-            }
-
-            // Select a series and load its seasons
-            function selectSeriesItem(seriesId, seriesName) {
-                currentSeriesId = seriesId;
-                document.querySelector('#selectedSeriesName').textContent = '📺 ' + seriesName;
-                document.querySelector('#seriesSelectors').style.display = 'block';
-                document.querySelector('#editorSection').style.display = 'none';
-                
-                var seasonSelect = document.querySelector('#selectSeason');
-                var episodeSelect = document.querySelector('#selectEpisode');
-                var btnSelect = document.querySelector('#btnSelectEpisode');
-                
-                seasonSelect.innerHTML = '<option value="">Loading seasons...</option>';
-                episodeSelect.innerHTML = '<option value="">Select Episode</option>';
-                episodeSelect.disabled = true;
-                btnSelect.disabled = true;
-                
-                getSeasons(seriesId).then(function(result) {
-                    seasonSelect.innerHTML = '<option value="">Select Season</option>';
-                    seasonsData = {};
-                    
-                    if (result.Items.length === 0) {
-                        seasonSelect.innerHTML = '<option value="">No seasons found</option>';
-                        return;
-                    }
-                    
-                    result.Items.forEach(function(season) {
-                        seasonsData[season.Id] = season;
-                        var opt = document.createElement('option');
-                        opt.value = season.Id;
-                        opt.textContent = season.Name || ('Season ' + season.IndexNumber);
-                        seasonSelect.appendChild(opt);
-                    });
-                });
-            }
-
-            // Load episodes when season is selected
-            function onSeasonChange(seasonId) {
-                var episodeSelect = document.querySelector('#selectEpisode');
-                var btnSelect = document.querySelector('#btnSelectEpisode');
-                
-                if (!seasonId) {
-                    episodeSelect.innerHTML = '<option value="">Select Episode</option>';
-                    episodeSelect.disabled = true;
-                    btnSelect.disabled = true;
-                    return;
-                }
-                
-                episodeSelect.innerHTML = '<option value="">Loading episodes...</option>';
-                episodeSelect.disabled = true;
-                
-                getEpisodes(seasonId).then(function(result) {
-                    episodeSelect.innerHTML = '<option value="">Select Episode</option>';
-                    episodeSelect.disabled = false;
-                    episodesData = {};
-                    
-                    if (result.Items.length === 0) {
-                        episodeSelect.innerHTML = '<option value="">No episodes found</option>';
-                        episodeSelect.disabled = true;
-                        return;
-                    }
-                    
-                    result.Items.forEach(function(episode) {
-                        episodesData[episode.Id] = episode;
-                        var opt = document.createElement('option');
-                        opt.value = episode.Id;
-                        var epNum = episode.IndexNumber ? ('E' + episode.IndexNumber + ' - ') : '';
-                        opt.textContent = epNum + episode.Name;
-                        episodeSelect.appendChild(opt);
-                    });
-                });
-            }
-
-            // Live search with debounce
-            function performSearch(query) {
-                if (!query || query.length < 2) {
-                    document.querySelector('#moviesSection').style.display = 'none';
-                    document.querySelector('#seriesSection').style.display = 'none';
-                    document.querySelector('#searchSuggestions').style.display = 'none';
-                    return;
-                }
-                
-                Promise.all([searchMovies(query), searchSeries(query)]).then(function(results) {
-                    var movies = results[0].Items;
-                    var series = results[1].Items;
-                    
-                    renderMovies(movies);
-                    renderSeries(series);
-                    
-                    // Also show quick suggestions dropdown
-                    renderSuggestions(movies, series);
-                });
-            }
-
-            // Render search suggestions dropdown
-            function renderSuggestions(movies, series) {
-                var container = document.querySelector('#searchSuggestions');
-                container.innerHTML = '';
-                
-                if ((!movies || movies.length === 0) && (!series || series.length === 0)) {
-                    container.style.display = 'none';
-                    return;
-                }
-                
-                if (movies && movies.length > 0) {
-                    var movieHeader = document.createElement('div');
-                    movieHeader.style.cssText = 'padding:8px 12px; color:#888; font-size:12px; border-bottom:1px solid #333;';
-                    movieHeader.textContent = '🎬 MOVIES';
-                    container.appendChild(movieHeader);
-                    
-                    movies.slice(0, 5).forEach(function(movie) {
-                        var item = document.createElement('div');
-                        item.style.cssText = 'padding:10px 12px; cursor:pointer; border-bottom:1px solid #333;';
-                        item.textContent = movie.Name + (movie.ProductionYear ? ' (' + movie.ProductionYear + ')' : '');
-                        item.addEventListener('mouseenter', function() { this.style.background = '#333'; });
-                        item.addEventListener('mouseleave', function() { this.style.background = 'transparent'; });
-                        item.addEventListener('click', function() {
-                            container.style.display = 'none';
-                            selectItem(movie.Id, movie.Name, 'Movie');
-                        });
-                        container.appendChild(item);
-                    });
-                }
-                
-                if (series && series.length > 0) {
-                    var seriesHeader = document.createElement('div');
-                    seriesHeader.style.cssText = 'padding:8px 12px; color:#888; font-size:12px; border-bottom:1px solid #333;';
-                    seriesHeader.textContent = '📺 SERIES';
-                    container.appendChild(seriesHeader);
-                    
-                    series.slice(0, 5).forEach(function(show) {
-                        var item = document.createElement('div');
-                        item.style.cssText = 'padding:10px 12px; cursor:pointer; border-bottom:1px solid #333;';
-                        item.textContent = show.Name + (show.ProductionYear ? ' (' + show.ProductionYear + ')' : '');
-                        item.addEventListener('mouseenter', function() { this.style.background = '#333'; });
-                        item.addEventListener('mouseleave', function() { this.style.background = 'transparent'; });
-                        item.addEventListener('click', function() {
-                            container.style.display = 'none';
-                            selectSeriesItem(show.Id, show.Name);
-                        });
-                        container.appendChild(item);
-                    });
-                }
-                
-                container.style.display = 'block';
-            }
-
             // Page initialization
             document.querySelector('#ParentalSkipperConfigPage').addEventListener('pageshow', function () {
                 var page = this;
+                
+                // Prevent duplicate listeners
+                if (page.getAttribute('data-listeners-attached') === 'true') {
+                    return;
+                }
+                page.setAttribute('data-listeners-attached', 'true');
+                
                 var txtSearch = page.querySelector('#txtSearch');
                 var selectSeason = page.querySelector('#selectSeason');
                 var selectEpisode = page.querySelector('#selectEpisode');
@@ -665,7 +542,7 @@
                     tabConfigured.style.background = '#333';
                     sectionManage.style.display = 'block';
                     sectionConfigured.style.display = 'none';
-                    resetEditState(); // Clear edit state when switching tabs
+                    resetEditState();
                 });
 
                 tabConfigured.addEventListener('click', function() {
@@ -674,6 +551,16 @@
                     sectionManage.style.display = 'none';
                     sectionConfigured.style.display = 'block';
                     renderConfiguredItems();
+                });
+
+                // Pagination Buttons
+                page.querySelector('#btnPrevPage').addEventListener('click', function() {
+                    if (currentPage > 1) loadPage(currentPage - 1);
+                });
+
+                page.querySelector('#btnNextPage').addEventListener('click', function() {
+                    var totalPages = Math.ceil(allConfiguredItemIds.length / itemsPerPage);
+                    if (currentPage < totalPages) loadPage(currentPage + 1);
                 });
 
                 // Live search with debounce

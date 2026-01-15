@@ -2,8 +2,14 @@
     <div data-role="content">
         <div class="content-primary">
             <h1>Parental Skipper Configuration</h1>
+
+            <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                <button is="emby-button" type="button" class="raised" id="tabManage" style="background: #00a4dc;">Manage Scenes</button>
+                <button is="emby-button" type="button" class="raised" id="tabConfigured" style="background: #333;">My Configured Items</button>
+            </div>
             
-            <div class="verticalSection">
+            <!-- Manage Section -->
+            <div id="manageSection" class="verticalSection">
                 <h2>Manage Restricted Scenes</h2>
                 <div class="inputContainer" style="position: relative;">
                     <label class="inputLabel" for="txtSearch">Search Movie / Series</label>
@@ -79,6 +85,22 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Configured Items Section -->
+            <div id="configuredSection" class="verticalSection" style="display: none;">
+                 <h2>My Configured Items</h2>
+                 <p style="color: #ccc; margin-bottom: 20px;">Items with active skip segments.</p>
+                 <div id="loadingConfigured" style="display: none;">Loading...</div>
+                 <!-- Grid Layout -->
+                 <div id="configuredList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;"></div>
+
+                 <!-- Pagination -->
+                 <div id="paginationControls" style="display: none; justify-content: center; align-items: center; margin-top: 20px; gap: 15px;">
+                     <button is="emby-button" type="button" class="raised" id="btnPrevPage">Previous</button>
+                     <span id="pageIndicator" style="font-weight: bold;">Page 1</span>
+                     <button is="emby-button" type="button" class="raised" id="btnNextPage">Next</button>
+                 </div>
+            </div>
             
             <div class="verticalSection" style="margin-top:30px;">
                 <h2>Client Script Status</h2>
@@ -103,6 +125,16 @@
             var currentSeriesId = null;
             var seasonsData = {};
             var episodesData = {};
+            var editingSegmentId = null; // Track if we are editing a segment
+
+            // Pagination state
+            var currentPage = 1;
+            var itemsPerPage = 15;
+            // For grouping, we need to process ALL configured IDs first to group episodes into Series.
+            // So logic: Fetch All Configured Segments -> Fetch Metadata for ALL IDs (in chunks if needed) -> Group locally -> Then Paginate Groups.
+            // This is safer for "Grouping by Series".
+            var allDisplayGroups = []; // Array of { Type: 'Movie'|'Series', Name: '', Year: '', Segments: [], SeriesId: '', EpisodeDetails: [] }
+            var segmentsMapGlobal = {};
 
             function getApiClient() {
                 return window.ApiClient;
@@ -128,54 +160,18 @@
                 return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
             }
 
-            // Search for Movies
-            function searchMovies(query) {
-                var apiClient = getApiClient();
-                return apiClient.getItems(apiClient.getCurrentUserId(), {
-                    SearchTerm: query,
-                    IncludeItemTypes: "Movie",
-                    Limit: 20,
-                    Recursive: true,
-                    SortBy: "SortName"
-                });
-            }
-
-            // Search for Series
-            function searchSeries(query) {
-                var apiClient = getApiClient();
-                return apiClient.getItems(apiClient.getCurrentUserId(), {
-                    SearchTerm: query,
-                    IncludeItemTypes: "Series",
-                    Limit: 20,
-                    Recursive: true,
-                    SortBy: "SortName"
-                });
-            }
-
-            // Get Seasons for a Series
-            function getSeasons(seriesId) {
-                var apiClient = getApiClient();
-                return apiClient.getItems(apiClient.getCurrentUserId(), {
-                    ParentId: seriesId,
-                    IncludeItemTypes: "Season",
-                    SortBy: "SortName"
-                });
-            }
-
-            // Get Episodes for a Season
-            function getEpisodes(seasonId) {
-                var apiClient = getApiClient();
-                return apiClient.getItems(apiClient.getCurrentUserId(), {
-                    ParentId: seasonId,
-                    IncludeItemTypes: "Episode",
-                    SortBy: "IndexNumber"
-                });
-            }
-
-            // Segment API calls
+            // --- API Wrappers ---
             function loadSegments(itemId) {
                 var apiClient = getApiClient();
                 var url = apiClient.serverAddress() + '/ParentalSkipper/Segments/' + itemId;
+                return fetchWithAuth(url, 'GET').then(function(response) {
+                    return response.json();
+                });
+            }
+
+            function loadAllSegments() {
+                var apiClient = getApiClient();
+                var url = apiClient.serverAddress() + '/ParentalSkipper/Segments';
                 return fetchWithAuth(url, 'GET').then(function(response) {
                     return response.json();
                 });
@@ -199,7 +195,6 @@
                 return fetchWithAuth(url, 'DELETE');
             }
 
-            // Make an authenticated fetch to the Jellyfin server
             function fetchWithAuth(url, method, body) {
                 var apiClient = getApiClient();
                 var reqInit = {
@@ -217,67 +212,18 @@
                 return fetch(url, reqInit);
             }
 
-            // Render segments table
-            function renderSegments(segments) {
-                var tbody = document.querySelector('#segmentsTable tbody');
-                var noMsg = document.querySelector('#noSegmentsMsg');
-                tbody.innerHTML = '';
-                
-                if (!segments || segments.length === 0) {
-                    noMsg.style.display = 'block';
-                    document.querySelector('#segmentsTable').style.display = 'none';
-                    return;
-                }
-                
-                noMsg.style.display = 'none';
-                document.querySelector('#segmentsTable').style.display = 'table';
-                
-                segments.forEach(function(s) {
-                    var tr = document.createElement('tr');
-                    tr.innerHTML = 
-                        '<td>' + secondsToTime(s.Start) + '</td>' +
-                        '<td>' + secondsToTime(s.End) + '</td>' +
-                        '<td>' + (s.Reason || '<em style="color:#888;">-</em>') + '</td>' +
-                        '<td><button is="emby-button" type="button" class="raised button-delete" data-id="' + s.Id + '">Delete</button></td>';
-                    tbody.appendChild(tr);
-                });
-
-                // Attach delete handlers
-                tbody.querySelectorAll('.button-delete').forEach(function(btn) {
-                    btn.addEventListener('click', function() {
-                        var segId = this.getAttribute('data-id');
-                        if (confirm('Delete this segment?')) {
-                            deleteSegment(segId).then(function() {
-                                var itemId = document.querySelector('#selectedItemId').value;
-                                loadSegments(itemId).then(renderSegments);
-                            });
-                        }
-                    });
-                });
-            }
-
-            // Show editor for selected item
-            function selectItem(itemId, itemName, itemType) {
-                document.querySelector('#selectedItemId').value = itemId;
-                var typeLabel = itemType === 'Movie' ? '🎬' : '📺';
-                document.querySelector('#selectedItemTitle').textContent = typeLabel + ' Editing: ' + itemName;
-                document.querySelector('#editorSection').style.display = 'block';
-                document.querySelector('#editorSection').scrollIntoView({ behavior: 'smooth' });
-                loadSegments(itemId).then(renderSegments);
-            }
-
-            // Render movie results
+            // --- Search Functions (Moved up for scope safety) ---
             function renderMovies(movies) {
                 var container = document.querySelector('#moviesList');
                 container.innerHTML = '';
-                
+
                 if (!movies || movies.length === 0) {
                     document.querySelector('#moviesSection').style.display = 'none';
                     return;
                 }
-                
+
                 document.querySelector('#moviesSection').style.display = 'block';
-                
+
                 movies.forEach(function(movie) {
                     var btn = document.createElement('button');
                     btn.setAttribute('is', 'emby-button');
@@ -291,19 +237,18 @@
                 });
             }
 
-            // Render series results
             function renderSeries(seriesList) {
                 var container = document.querySelector('#seriesList');
                 container.innerHTML = '';
-                
+
                 if (!seriesList || seriesList.length === 0) {
                     document.querySelector('#seriesSection').style.display = 'none';
                     return;
                 }
-                
+
                 document.querySelector('#seriesSection').style.display = 'block';
                 document.querySelector('#seriesSelectors').style.display = 'none';
-                
+
                 seriesList.forEach(function(series) {
                     var btn = document.createElement('button');
                     btn.setAttribute('is', 'emby-button');
@@ -317,115 +262,21 @@
                 });
             }
 
-            // Select a series and load its seasons
-            function selectSeriesItem(seriesId, seriesName) {
-                currentSeriesId = seriesId;
-                document.querySelector('#selectedSeriesName').textContent = '📺 ' + seriesName;
-                document.querySelector('#seriesSelectors').style.display = 'block';
-                document.querySelector('#editorSection').style.display = 'none';
-                
-                var seasonSelect = document.querySelector('#selectSeason');
-                var episodeSelect = document.querySelector('#selectEpisode');
-                var btnSelect = document.querySelector('#btnSelectEpisode');
-                
-                seasonSelect.innerHTML = '<option value="">Loading seasons...</option>';
-                episodeSelect.innerHTML = '<option value="">Select Episode</option>';
-                episodeSelect.disabled = true;
-                btnSelect.disabled = true;
-                
-                getSeasons(seriesId).then(function(result) {
-                    seasonSelect.innerHTML = '<option value="">Select Season</option>';
-                    seasonsData = {};
-                    
-                    if (result.Items.length === 0) {
-                        seasonSelect.innerHTML = '<option value="">No seasons found</option>';
-                        return;
-                    }
-                    
-                    result.Items.forEach(function(season) {
-                        seasonsData[season.Id] = season;
-                        var opt = document.createElement('option');
-                        opt.value = season.Id;
-                        opt.textContent = season.Name || ('Season ' + season.IndexNumber);
-                        seasonSelect.appendChild(opt);
-                    });
-                });
-            }
-
-            // Load episodes when season is selected
-            function onSeasonChange(seasonId) {
-                var episodeSelect = document.querySelector('#selectEpisode');
-                var btnSelect = document.querySelector('#btnSelectEpisode');
-                
-                if (!seasonId) {
-                    episodeSelect.innerHTML = '<option value="">Select Episode</option>';
-                    episodeSelect.disabled = true;
-                    btnSelect.disabled = true;
-                    return;
-                }
-                
-                episodeSelect.innerHTML = '<option value="">Loading episodes...</option>';
-                episodeSelect.disabled = true;
-                
-                getEpisodes(seasonId).then(function(result) {
-                    episodeSelect.innerHTML = '<option value="">Select Episode</option>';
-                    episodeSelect.disabled = false;
-                    episodesData = {};
-                    
-                    if (result.Items.length === 0) {
-                        episodeSelect.innerHTML = '<option value="">No episodes found</option>';
-                        episodeSelect.disabled = true;
-                        return;
-                    }
-                    
-                    result.Items.forEach(function(episode) {
-                        episodesData[episode.Id] = episode;
-                        var opt = document.createElement('option');
-                        opt.value = episode.Id;
-                        var epNum = episode.IndexNumber ? ('E' + episode.IndexNumber + ' - ') : '';
-                        opt.textContent = epNum + episode.Name;
-                        episodeSelect.appendChild(opt);
-                    });
-                });
-            }
-
-            // Live search with debounce
-            function performSearch(query) {
-                if (!query || query.length < 2) {
-                    document.querySelector('#moviesSection').style.display = 'none';
-                    document.querySelector('#seriesSection').style.display = 'none';
-                    document.querySelector('#searchSuggestions').style.display = 'none';
-                    return;
-                }
-                
-                Promise.all([searchMovies(query), searchSeries(query)]).then(function(results) {
-                    var movies = results[0].Items;
-                    var series = results[1].Items;
-                    
-                    renderMovies(movies);
-                    renderSeries(series);
-                    
-                    // Also show quick suggestions dropdown
-                    renderSuggestions(movies, series);
-                });
-            }
-
-            // Render search suggestions dropdown
             function renderSuggestions(movies, series) {
                 var container = document.querySelector('#searchSuggestions');
                 container.innerHTML = '';
-                
+
                 if ((!movies || movies.length === 0) && (!series || series.length === 0)) {
                     container.style.display = 'none';
                     return;
                 }
-                
+
                 if (movies && movies.length > 0) {
                     var movieHeader = document.createElement('div');
                     movieHeader.style.cssText = 'padding:8px 12px; color:#888; font-size:12px; border-bottom:1px solid #333;';
                     movieHeader.textContent = '🎬 MOVIES';
                     container.appendChild(movieHeader);
-                    
+
                     movies.slice(0, 5).forEach(function(movie) {
                         var item = document.createElement('div');
                         item.style.cssText = 'padding:10px 12px; cursor:pointer; border-bottom:1px solid #333;';
@@ -439,13 +290,13 @@
                         container.appendChild(item);
                     });
                 }
-                
+
                 if (series && series.length > 0) {
                     var seriesHeader = document.createElement('div');
                     seriesHeader.style.cssText = 'padding:8px 12px; color:#888; font-size:12px; border-bottom:1px solid #333;';
                     seriesHeader.textContent = '📺 SERIES';
                     container.appendChild(seriesHeader);
-                    
+
                     series.slice(0, 5).forEach(function(show) {
                         var item = document.createElement('div');
                         item.style.cssText = 'padding:10px 12px; cursor:pointer; border-bottom:1px solid #333;';
@@ -459,20 +310,520 @@
                         container.appendChild(item);
                     });
                 }
-                
+
                 container.style.display = 'block';
+            }
+
+            function searchMovies(query) {
+                var apiClient = getApiClient();
+                return apiClient.getItems(apiClient.getCurrentUserId(), {
+                    SearchTerm: query,
+                    IncludeItemTypes: "Movie",
+                    Limit: 20,
+                    Recursive: true,
+                    SortBy: "SortName"
+                });
+            }
+
+            function searchSeries(query) {
+                var apiClient = getApiClient();
+                return apiClient.getItems(apiClient.getCurrentUserId(), {
+                    SearchTerm: query,
+                    IncludeItemTypes: "Series",
+                    Limit: 20,
+                    Recursive: true,
+                    SortBy: "SortName"
+                });
+            }
+
+            function performSearch(query) {
+                if (!query || query.length < 2) {
+                    document.querySelector('#moviesSection').style.display = 'none';
+                    document.querySelector('#seriesSection').style.display = 'none';
+                    document.querySelector('#searchSuggestions').style.display = 'none';
+                    return;
+                }
+
+                Promise.all([searchMovies(query), searchSeries(query)]).then(function(results) {
+                    var movies = results[0].Items;
+                    var series = results[1].Items;
+                    renderMovies(movies);
+                    renderSeries(series);
+                    renderSuggestions(movies, series);
+                });
+            }
+
+            // --- Selection Logic ---
+            function getSeasons(seriesId) {
+                var apiClient = getApiClient();
+                return apiClient.getItems(apiClient.getCurrentUserId(), {
+                    ParentId: seriesId,
+                    IncludeItemTypes: "Season",
+                    SortBy: "SortName"
+                });
+            }
+
+            function getEpisodes(seasonId) {
+                var apiClient = getApiClient();
+                return apiClient.getItems(apiClient.getCurrentUserId(), {
+                    ParentId: seasonId,
+                    IncludeItemTypes: "Episode",
+                    SortBy: "IndexNumber"
+                });
+            }
+
+            function selectSeriesItem(seriesId, seriesName) {
+                currentSeriesId = seriesId;
+                document.querySelector('#selectedSeriesName').textContent = '📺 ' + seriesName;
+                document.querySelector('#seriesSelectors').style.display = 'block';
+                document.querySelector('#editorSection').style.display = 'none';
+
+                var seasonSelect = document.querySelector('#selectSeason');
+                var episodeSelect = document.querySelector('#selectEpisode');
+                var btnSelect = document.querySelector('#btnSelectEpisode');
+
+                seasonSelect.innerHTML = '<option value="">Loading seasons...</option>';
+                episodeSelect.innerHTML = '<option value="">Select Episode</option>';
+                episodeSelect.disabled = true;
+                btnSelect.disabled = true;
+
+                getSeasons(seriesId).then(function(result) {
+                    seasonSelect.innerHTML = '<option value="">Select Season</option>';
+                    seasonsData = {};
+
+                    if (result.Items.length === 0) {
+                        seasonSelect.innerHTML = '<option value="">No seasons found</option>';
+                        return;
+                    }
+
+                    result.Items.forEach(function(season) {
+                        seasonsData[season.Id] = season;
+                        var opt = document.createElement('option');
+                        opt.value = season.Id;
+                        opt.textContent = season.Name || ('Season ' + season.IndexNumber);
+                        seasonSelect.appendChild(opt);
+                    });
+                });
+            }
+
+            function onSeasonChange(seasonId) {
+                var episodeSelect = document.querySelector('#selectEpisode');
+                var btnSelect = document.querySelector('#btnSelectEpisode');
+
+                if (!seasonId) {
+                    episodeSelect.innerHTML = '<option value="">Select Episode</option>';
+                    episodeSelect.disabled = true;
+                    btnSelect.disabled = true;
+                    return;
+                }
+
+                episodeSelect.innerHTML = '<option value="">Loading episodes...</option>';
+                episodeSelect.disabled = true;
+
+                getEpisodes(seasonId).then(function(result) {
+                    episodeSelect.innerHTML = '<option value="">Select Episode</option>';
+                    episodeSelect.disabled = false;
+                    episodesData = {};
+
+                    if (result.Items.length === 0) {
+                        episodeSelect.innerHTML = '<option value="">No episodes found</option>';
+                        episodeSelect.disabled = true;
+                        return;
+                    }
+
+                    result.Items.forEach(function(episode) {
+                        episodesData[episode.Id] = episode;
+                        var opt = document.createElement('option');
+                        opt.value = episode.Id;
+                        var epNum = episode.IndexNumber ? ('E' + episode.IndexNumber + ' - ') : '';
+                        opt.textContent = epNum + episode.Name;
+                        episodeSelect.appendChild(opt);
+                    });
+                });
+            }
+
+            function editSegment(segment) {
+                document.querySelector('#txtStart').value = secondsToTime(segment.Start);
+                document.querySelector('#txtEnd').value = secondsToTime(segment.End);
+                document.querySelector('#txtReason').value = segment.Reason || '';
+
+                editingSegmentId = segment.Id;
+
+                var btn = document.querySelector('#btnAddSegment');
+                btn.textContent = 'Update Segment';
+                btn.style.background = '#eab308';
+
+                document.querySelector('#txtStart').focus();
+            }
+
+            function resetEditState() {
+                editingSegmentId = null;
+                var btn = document.querySelector('#btnAddSegment');
+                btn.textContent = 'Add Segment';
+                btn.style.background = '';
+
+                document.querySelector('#txtStart').value = '';
+                document.querySelector('#txtEnd').value = '';
+                document.querySelector('#txtReason').value = '';
+            }
+
+            function renderSegments(segments) {
+                var tbody = document.querySelector('#segmentsTable tbody');
+                var noMsg = document.querySelector('#noSegmentsMsg');
+                tbody.innerHTML = '';
+
+                if (!segments || segments.length === 0) {
+                    noMsg.style.display = 'block';
+                    document.querySelector('#segmentsTable').style.display = 'none';
+                    return;
+                }
+                
+                noMsg.style.display = 'none';
+                document.querySelector('#segmentsTable').style.display = 'table';
+
+                segments.forEach(function(s) {
+                    var tr = document.createElement('tr');
+
+                    var tdStart = document.createElement('td');
+                    tdStart.textContent = secondsToTime(s.Start);
+
+                    var tdEnd = document.createElement('td');
+                    tdEnd.textContent = secondsToTime(s.End);
+
+                    var tdReason = document.createElement('td');
+                    tdReason.innerHTML = s.Reason || '<em style="color:#888;">-</em>';
+
+                    var tdActions = document.createElement('td');
+
+                    var btnEdit = document.createElement('button');
+                    btnEdit.type = 'button';
+                    btnEdit.className = 'fab mini';
+                    btnEdit.style.cssText = 'background: transparent; color: inherit; margin-right: 5px;';
+                    btnEdit.title = 'Edit';
+                    btnEdit.innerHTML = '&#9998;';
+                    btnEdit.onclick = function() { editSegment(s); };
+
+                    var btnDelete = document.createElement('button');
+                    btnDelete.setAttribute('is', 'emby-button');
+                    btnDelete.type = 'button';
+                    btnDelete.className = 'raised button-delete';
+                    btnDelete.setAttribute('data-id', s.Id);
+                    btnDelete.textContent = 'Delete';
+
+                    tdActions.appendChild(btnEdit);
+                    tdActions.appendChild(btnDelete);
+
+                    tr.appendChild(tdStart);
+                    tr.appendChild(tdEnd);
+                    tr.appendChild(tdReason);
+                    tr.appendChild(tdActions);
+
+                    tbody.appendChild(tr);
+                });
+
+                tbody.querySelectorAll('.button-delete').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var segId = this.getAttribute('data-id');
+                        if (confirm('Delete this segment?')) {
+                            deleteSegment(segId).then(function() {
+                                var itemId = document.querySelector('#selectedItemId').value;
+                                loadSegments(itemId).then(renderSegments);
+                                if (editingSegmentId == segId) resetEditState();
+                            });
+                        }
+                    });
+                });
+            }
+
+            function selectItem(itemId, itemName, itemType) {
+                document.querySelector('#selectedItemId').value = itemId;
+                var typeLabel = itemType === 'Movie' ? '🎬' : '📺';
+                document.querySelector('#selectedItemTitle').textContent = typeLabel + ' Editing: ' + itemName;
+                document.querySelector('#editorSection').style.display = 'block';
+                document.querySelector('#editorSection').scrollIntoView({ behavior: 'smooth' });
+                resetEditState();
+                loadSegments(itemId).then(renderSegments);
+            }
+
+            // --- Pagination & Grouping Logic ---
+            function loadPage(page) {
+                currentPage = page;
+                var container = document.querySelector('#configuredList');
+                container.innerHTML = '';
+
+                var start = (page - 1) * itemsPerPage;
+                var end = start + itemsPerPage;
+                var pageItems = allDisplayGroups.slice(start, end);
+
+                if (pageItems.length === 0 && page === 1) {
+                    container.innerHTML = '<div style="padding: 20px; color: #888;">No items configured.</div>';
+                    return;
+                }
+
+                pageItems.forEach(function(group) {
+                    var card = document.createElement('div');
+                    card.style.cssText = 'background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333; display: flex; flex-direction: column;';
+
+                    var header = document.createElement('div');
+                    header.style.cssText = 'display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;';
+
+                    var headerHtml = '<div>';
+                    // Show Series Name or Movie Name
+                    var typeIcon = group.Type === 'Series' ? '📺' : '🎬';
+                    headerHtml += '<h3 style="margin: 0; font-size: 1.1em;">' + typeIcon + ' ' + group.Name + '</h3>';
+                    headerHtml += '<div style="font-size: 0.85em; color: #888;">' + (group.Year || '') + '</div>';
+                    headerHtml += '</div>';
+
+                    // Count Logic
+                    var count = 0;
+                    if (group.Type === 'Movie') {
+                        count = group.Segments.length;
+                    } else {
+                        // For series, sum segments across episodes
+                        count = group.EpisodeDetails.reduce(function(acc, ep) { return acc + ep.Segments.length; }, 0);
+                    }
+
+                    headerHtml += '<div style="font-size: 0.9em; background: #333; padding: 2px 6px; border-radius: 4px;">' + count + ' Segments</div>';
+                    header.innerHTML = headerHtml;
+
+                    var details = document.createElement('div');
+                    details.style.cssText = 'display: none; margin-top: auto; border-top: 1px solid #444; padding-top: 10px;';
+
+                    // Render Details based on Type
+                    if (group.Type === 'Movie') {
+                        var table = '<table class="tbl" style="width: 100%; text-align: left; font-size: 0.9em;"><thead><tr><th>Start</th><th>End</th></tr></thead><tbody>';
+                        group.Segments.forEach(function(s) {
+                            table += '<tr><td>' + secondsToTime(s.Start) + '</td><td>' + secondsToTime(s.End) + '</td></tr>';
+                        });
+                        table += '</tbody></table>';
+                        details.innerHTML = table;
+
+                        var editBtn = document.createElement('button');
+                        editBtn.setAttribute('is', 'emby-button');
+                        editBtn.className = 'raised';
+                        editBtn.style.cssText = 'margin-top: 10px; width: 100%; background: #00a4dc; font-size: 0.9em; padding: 5px;';
+                        editBtn.textContent = 'Edit Movie';
+                        editBtn.onclick = function() {
+                            document.querySelector('#tabManage').click();
+                            selectItem(group.Id, group.Name, 'Movie');
+                        };
+                        details.appendChild(editBtn);
+                    } else {
+                        // Series: List episodes
+                        group.EpisodeDetails.forEach(function(ep) {
+                            var epRow = document.createElement('div');
+                            epRow.style.cssText = 'margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #333;';
+                            epRow.innerHTML = '<div style="font-weight:bold; font-size:0.95em;">' + ep.EpisodeTitle + '</div>';
+
+                            var table = '<table class="tbl" style="width: 100%; text-align: left; font-size: 0.85em; margin-top: 4px; color: #ccc;"><tbody>';
+                            ep.Segments.forEach(function(s) {
+                                table += '<tr><td style="width: 60px;">' + secondsToTime(s.Start) + ' - ' + secondsToTime(s.End) + '</td><td>' + (s.Reason||'') + '</td></tr>';
+                            });
+                            table += '</tbody></table>';
+                            epRow.innerHTML += table;
+
+                            var editEpBtn = document.createElement('button');
+                            editEpBtn.textContent = 'Edit';
+                            editEpBtn.style.cssText = 'background:none; border:none; color: #00a4dc; cursor: pointer; font-size: 0.8em; padding: 0; margin-top: 2px;';
+                            editEpBtn.onclick = function() {
+                                document.querySelector('#tabManage').click();
+                                // We need season info to properly select, but we can jump to editing by ID if we skip "selectSeriesItem"
+                                // Just call selectItem directly with Episode ID
+                                selectItem(ep.Id, group.Name + ' - ' + ep.EpisodeTitle, 'Episode');
+                            };
+                            epRow.appendChild(editEpBtn);
+
+                            details.appendChild(epRow);
+                        });
+                    }
+
+                    var footer = document.createElement('div');
+                    footer.style.cssText = 'margin-top: 10px; text-align: center; cursor: pointer; color: #ccc; font-size: 0.9em;';
+                    footer.textContent = 'Show Details';
+                    footer.onclick = function() {
+                        var isHidden = details.style.display === 'none';
+                        details.style.display = isHidden ? 'block' : 'none';
+                        footer.textContent = isHidden ? 'Hide Details' : 'Show Details';
+                    };
+
+                    card.appendChild(header);
+                    card.appendChild(details);
+                    card.appendChild(footer);
+                    container.appendChild(card);
+                });
+
+                updatePaginationControls();
+            }
+
+            function updatePaginationControls() {
+                var container = document.querySelector('#paginationControls');
+                var btnPrev = document.querySelector('#btnPrevPage');
+                var btnNext = document.querySelector('#btnNextPage');
+                var indicator = document.querySelector('#pageIndicator');
+
+                var totalPages = Math.ceil(allDisplayGroups.length / itemsPerPage);
+
+                if (totalPages <= 1) {
+                    container.style.display = 'none';
+                    return;
+                }
+                
+                container.style.display = 'flex';
+                indicator.textContent = 'Page ' + currentPage + ' of ' + totalPages;
+
+                btnPrev.disabled = currentPage === 1;
+                btnNext.disabled = currentPage === totalPages;
+            }
+
+            function renderConfiguredItems() {
+                var container = document.querySelector('#configuredList');
+                var loader = document.querySelector('#loadingConfigured');
+
+                container.innerHTML = '';
+                loader.style.display = 'block';
+
+                loadAllSegments().then(function(groupedSegments) {
+                    var rawIds = Object.keys(groupedSegments);
+                    if (rawIds.length === 0) {
+                        loader.style.display = 'none';
+                        container.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">No items configured yet.</div>';
+                        return;
+                    }
+
+                    segmentsMapGlobal = {};
+                    rawIds.forEach(function(key) {
+                        var normalizedKey = key.replace(/-/g, '').toLowerCase();
+                        segmentsMapGlobal[normalizedKey] = groupedSegments[key];
+                    });
+                    
+                    // Fetch ALL metadata to group properly (Might be heavy for huge libs, but necessary for grouping by series)
+                    // Optimization: We could fetch in batches, but grouping requires knowing series context.
+                    // Let's assume reasonable size for now.
+                    var apiClient = getApiClient();
+                    apiClient.getItems(apiClient.getCurrentUserId(), {
+                        Ids: rawIds.join(','),
+                        Recursive: true,
+                        Fields: "ParentId,SeriesName,SeriesId,SeasonName,IndexNumber,ParentIndexNumber"
+                    }).then(function(result) {
+                        loader.style.display = 'none';
+                        var items = result.Items;
+
+                        if (!items || items.length === 0) {
+                             container.innerHTML = '<div style="color: #ccc;">Items found in DB but not in Library.</div>';
+                             return;
+                        }
+
+                        // Process and Group
+                        var groups = {}; // Key: SeriesId (for episodes) or Id (for movies)
+
+                        items.forEach(function(item) {
+                            var itemIdLower = item.Id.replace(/-/g, '').toLowerCase();
+                            var itemSegments = segmentsMapGlobal[itemIdLower] || [];
+
+                            if (item.Type === 'Episode') {
+                                // Group by Series
+                                var seriesId = item.SeriesId || item.ParentId; // Fallback
+                                var seriesName = item.SeriesName || 'Unknown Series';
+
+                                if (!groups[seriesId]) {
+                                    groups[seriesId] = {
+                                        Id: seriesId,
+                                        Type: 'Series',
+                                        Name: seriesName,
+                                        Year: '', // Series Year difficult to get from Episode without extra fetch
+                                        EpisodeDetails: []
+                                    };
+                                }
+
+                                // Format Episode Title: S01E05
+                                var sNum = item.ParentIndexNumber != null ? item.ParentIndexNumber : '?';
+                                var eNum = item.IndexNumber != null ? item.IndexNumber : '?';
+                                var epTitle = 'S' + String(sNum).padStart(2,'0') + ' E' + String(eNum).padStart(2,'0') + ' - ' + item.Name;
+
+                                groups[seriesId].EpisodeDetails.push({
+                                    Id: item.Id,
+                                    EpisodeTitle: epTitle,
+                                    Segments: itemSegments
+                                });
+
+                            } else {
+                                // Movie or other
+                                groups[item.Id] = {
+                                    Id: item.Id,
+                                    Type: 'Movie',
+                                    Name: item.Name,
+                                    Year: item.ProductionYear,
+                                    Segments: itemSegments
+                                };
+                            }
+                        });
+
+                        // Convert map to array and sort
+                        allDisplayGroups = Object.values(groups);
+                        allDisplayGroups.sort(function(a, b) {
+                            return a.Name.localeCompare(b.Name);
+                        });
+
+                        // Sort episodes inside series
+                        allDisplayGroups.forEach(function(g) {
+                            if (g.Type === 'Series') {
+                                g.EpisodeDetails.sort(function(a, b) {
+                                    return a.EpisodeTitle.localeCompare(b.EpisodeTitle);
+                                });
+                            }
+                        });
+
+                        loadPage(1);
+
+                    });
+                }).catch(function(err) {
+                    console.error(err);
+                    loader.style.display = 'none';
+                    container.innerHTML = '<div style="color: red;">Error loading items. Check console.</div>';
+                });
             }
 
             // Page initialization
             document.querySelector('#ParentalSkipperConfigPage').addEventListener('pageshow', function () {
                 var page = this;
+                if (page.getAttribute('data-listeners-attached') === 'true') return;
+                page.setAttribute('data-listeners-attached', 'true');
+
                 var txtSearch = page.querySelector('#txtSearch');
                 var selectSeason = page.querySelector('#selectSeason');
                 var selectEpisode = page.querySelector('#selectEpisode');
                 var btnSelectEpisode = page.querySelector('#btnSelectEpisode');
-                var suggestions = page.querySelector('#searchSuggestions');
 
-                // Live search with debounce
+                var tabManage = page.querySelector('#tabManage');
+                var tabConfigured = page.querySelector('#tabConfigured');
+                var sectionManage = page.querySelector('#manageSection');
+                var sectionConfigured = page.querySelector('#configuredSection');
+
+                tabManage.addEventListener('click', function() {
+                    tabManage.style.background = '#00a4dc';
+                    tabConfigured.style.background = '#333';
+                    sectionManage.style.display = 'block';
+                    sectionConfigured.style.display = 'none';
+                    resetEditState();
+                });
+
+                tabConfigured.addEventListener('click', function() {
+                    tabConfigured.style.background = '#00a4dc';
+                    tabManage.style.background = '#333';
+                    sectionManage.style.display = 'none';
+                    sectionConfigured.style.display = 'block';
+                    renderConfiguredItems();
+                });
+
+                page.querySelector('#btnPrevPage').addEventListener('click', function() {
+                    if (currentPage > 1) loadPage(currentPage - 1);
+                });
+
+                page.querySelector('#btnNextPage').addEventListener('click', function() {
+                    var totalPages = Math.ceil(allDisplayGroups.length / itemsPerPage);
+                    if (currentPage < totalPages) loadPage(currentPage + 1);
+                });
+
                 txtSearch.addEventListener('input', function() {
                     clearTimeout(searchTimeout);
                     var query = this.value;
@@ -481,31 +832,25 @@
                     }, 300);
                 });
 
-                // Hide suggestions when clicking outside
                 document.addEventListener('click', function(e) {
+                    var suggestions = page.querySelector('#searchSuggestions');
                     if (!txtSearch.contains(e.target) && !suggestions.contains(e.target)) {
                         suggestions.style.display = 'none';
                     }
                 });
 
-                // Show suggestions on focus if there's a query
                 txtSearch.addEventListener('focus', function() {
-                    if (this.value.length >= 2) {
-                        performSearch(this.value);
-                    }
+                    if (this.value.length >= 2) performSearch(this.value);
                 });
 
-                // Season dropdown change
                 selectSeason.addEventListener('change', function() {
                     onSeasonChange(this.value);
                 });
 
-                // Episode dropdown change
                 selectEpisode.addEventListener('change', function() {
                     btnSelectEpisode.disabled = !this.value;
                 });
 
-                // Select episode button
                 btnSelectEpisode.addEventListener('click', function() {
                     var episodeId = selectEpisode.value;
                     if (episodeId && episodesData[episodeId]) {
@@ -516,50 +861,37 @@
                     }
                 });
 
-                // Add segment button
                 page.querySelector('#btnAddSegment').addEventListener('click', function () {
                     var itemId = page.querySelector('#selectedItemId').value;
                     var startStr = page.querySelector('#txtStart').value;
                     var endStr = page.querySelector('#txtEnd').value;
                     var reason = page.querySelector('#txtReason').value;
                     
-                    if (!itemId) {
-                        alert('Please select a movie or episode first.');
-                        return;
-                    }
-
-                    if (!startStr || !endStr) {
-                        alert('Please enter both Start and End times in HH:MM:SS format.');
-                        return;
-                    }
+                    if (!itemId) { alert('Please select a movie or episode first.'); return; }
+                    if (!startStr || !endStr) { alert('Please enter both Start and End times.'); return; }
 
                     var startSeconds = timeToSeconds(startStr);
                     var endSeconds = timeToSeconds(endStr);
 
-                    if (startSeconds === null) {
-                        alert('Invalid Start time format. Use HH:MM:SS (e.g., 00:15:30).');
-                        return;
+                    if (startSeconds === null || endSeconds === null || startSeconds >= endSeconds) {
+                        alert('Invalid time range.'); return;
                     }
 
-                    if (endSeconds === null) {
-                        alert('Invalid End time format. Use HH:MM:SS (e.g., 00:16:45).');
-                        return;
-                    }
+                    var performAdd = function() {
+                        addSegment(itemId, startSeconds, endSeconds, reason).then(function() {
+                            loadSegments(itemId).then(renderSegments);
+                            resetEditState();
+                        }).catch(function(err) {
+                            console.error(err);
+                            alert('Error saving segment.');
+                        });
+                    };
 
-                    if (startSeconds >= endSeconds) {
-                        alert('Start time must be less than End time.');
-                        return;
+                    if (editingSegmentId) {
+                        deleteSegment(editingSegmentId).then(performAdd).catch(function(err){console.error(err); alert('Error updating.');});
+                    } else {
+                        performAdd();
                     }
-
-                    addSegment(itemId, startSeconds, endSeconds, reason).then(function() {
-                        loadSegments(itemId).then(renderSegments);
-                        page.querySelector('#txtStart').value = '';
-                        page.querySelector('#txtEnd').value = '';
-                        page.querySelector('#txtReason').value = '';
-                    }).catch(function(err) {
-                        console.error('Error adding segment:', err);
-                        alert('Error adding segment. Please check console for details.');
-                    });
                 });
             });
         })();

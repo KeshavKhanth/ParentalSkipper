@@ -2,13 +2,25 @@
     'use strict';
 
     // DEBUG: Visual indicator that script is loaded
-    const debugOverlay = document.createElement('div');
-    debugOverlay.style.cssText = 'position:fixed;top:0;left:0;background:purple;color:white;z-index:999999;padding:5px;font-size:12px;pointer-events:none;opacity:0.8;';
-    debugOverlay.textContent = 'Parental Skipper v2.0 Loaded';
-    document.body.appendChild(debugOverlay);
-    setTimeout(() => debugOverlay.remove(), 5000);
+    function createDebugOverlay() {
+        if (!document.body) {
+            setTimeout(createDebugOverlay, 100);
+            return;
+        }
+        const debugOverlay = document.createElement('div');
+        debugOverlay.style.cssText = 'position:fixed;top:0;left:0;background:purple;color:white;z-index:999999;padding:5px;font-size:12px;pointer-events:none;opacity:0.8;';
+        debugOverlay.textContent = 'Parental Skipper v2.1 Loaded';
+        document.body.appendChild(debugOverlay);
+        setTimeout(() => debugOverlay.remove(), 5000);
+    }
 
-    console.log('%c[Parental Skipper] Script loaded and initialized (v2.0).', 'color: #8b5cf6; font-size: 14px; font-weight: bold;');
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', createDebugOverlay);
+    } else {
+        createDebugOverlay();
+    }
+
+    console.log('%c[Parental Skipper] Script loaded and initialized (v2.1).', 'color: #8b5cf6; font-size: 14px; font-weight: bold;');
 
     // State
     let currentSegments = [];
@@ -17,6 +29,7 @@
     let isEnabled = localStorage.getItem('parentalSkipperEnabled') !== 'false'; // Default ON
     let toggleButton = null;
     let skipNotification = null;
+    let notificationTimeout = null; // For clearing pending removals
     let videoElement = null;
     let lastDetectedItemId = null;
 
@@ -41,13 +54,21 @@
     function extractItemIdFromUrlString(url, source) {
         // Look for item ID in URL patterns
         // Common patterns: /Items/{id}, /PlaybackInfo?ItemId={id}, etc.
-        const itemMatch = url.match(/\/Items\/([a-f0-9-]{32})/i) ||
-                          url.match(/[?&](?:ItemId|id)=([a-f0-9-]{32})/i);
+        // GUIDs are usually 32 hex chars (sometimes with dashes). Jellyfin uses 32 hex chars.
+        // But the comment suggests allowing standard UUID format (36 chars) as well.
+        // Matches:
+        // 1. /Items/xxxxxxxx...
+        // 2. id=xxxxxxxx... or ItemId=xxxxxxxx...
+
+        // Regex for 32 hex chars OR 36 chars (standard UUID with dashes)
+        const uuidPattern = '([a-f0-9]{32}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})';
+        const urlRegex = new RegExp(`\\/Items\\/${uuidPattern}`, 'i');
+        const paramRegex = new RegExp(`[?&](?:ItemId|id)=${uuidPattern}`, 'i');
+
+        const itemMatch = url.match(urlRegex) || url.match(paramRegex);
 
         if (itemMatch && itemMatch[1]) {
-            // Filter out user IDs if possible (usually standard Item IDs are UUIDs, User IDs are too, but context matters)
-            // We'll assume if it looks like a UUID, it might be an item.
-            // But we ignore /Users/{userId} which is handled separately usually.
+            // Filter out user IDs if possible
             if (!url.includes('/Users/') || url.includes('/Items/')) {
                 if (lastDetectedItemId !== itemMatch[1]) {
                     lastDetectedItemId = itemMatch[1];
@@ -74,7 +95,12 @@
         console.log(`%c[Parental Skipper] Fetching segments for item: ${itemId}`, 'color: #0ea5e9; font-weight: bold;');
 
         const apiClient = window.ApiClient;
-        const baseUrl = apiClient?.serverAddress ? apiClient.serverAddress() : '';
+        if (!apiClient || typeof apiClient.serverAddress !== 'function') {
+             console.warn('[Parental Skipper] ApiClient not ready or serverAddress missing.');
+             return;
+        }
+
+        const baseUrl = apiClient.serverAddress();
         const url = baseUrl + '/ParentalSkipper/Segments/' + itemId;
 
         const headers = {};
@@ -103,6 +129,12 @@
 
     // --- UI Elements ---
     function showSkipNotification(segment) {
+        // Clear pending removal
+        if (notificationTimeout) {
+            clearTimeout(notificationTimeout);
+            notificationTimeout = null;
+        }
+
         const existing = document.getElementById('parental-skipper-notification');
         if (existing) existing.remove();
 
@@ -118,17 +150,25 @@
 
         const reason = segment.Reason || 'Restricted Content';
         skipNotification.innerHTML = `⏩ Skipping: ${reason}`;
-        document.body.appendChild(skipNotification);
+        if (document.body) {
+            document.body.appendChild(skipNotification);
+        }
 
-        setTimeout(() => {
+        // Set new removal timeout
+        notificationTimeout = setTimeout(() => {
             if (skipNotification && skipNotification.parentNode) {
                 skipNotification.style.opacity = '0';
-                setTimeout(() => skipNotification.remove(), 500);
+                setTimeout(() => {
+                    if (skipNotification) skipNotification.remove();
+                    skipNotification = null;
+                }, 500);
             }
+            notificationTimeout = null;
         }, 3000);
     }
 
     function createToggleButton() {
+        if (!document.body) return; // Wait for body
         if (document.getElementById('parental-skipper-toggle')) return;
 
         toggleButton = document.createElement('button');
@@ -178,8 +218,13 @@
         // Seek
         videoElement.currentTime = end + 0.5; // +0.5s buffer
 
-        // Cooldown
+        // Cooldown - ensure we don't double skip if the seek lands slightly early or segment is short
         setTimeout(() => {
+            // Verify we are past the segment
+            if (videoElement && videoElement.currentTime < end) {
+                 // If for some reason we are still in it, push forward again
+                 videoElement.currentTime = end + 0.5;
+            }
             isSkipping = false;
         }, 1500);
     }
@@ -215,10 +260,27 @@
             if (item && item.Id) return item.Id;
         }
 
-        // Priority 3: URL params (id=...)
-        const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
-        if (urlParams.has('id')) return urlParams.get('id');
-        if (urlParams.has('videoId')) return urlParams.get('videoId');
+        // Priority 3: URL params
+        // Check both hash params (typical in Jellyfin SPA) and search params (direct links)
+        let id = null;
+
+        // Check Hash Params (e.g. #/video?id=...)
+        if (window.location.hash && window.location.hash.includes('?')) {
+            const hashParams = new URLSearchParams(window.location.hash.split('?')[1]);
+            if (hashParams.has('id')) id = hashParams.get('id');
+            else if (hashParams.has('videoId')) id = hashParams.get('videoId');
+            else if (hashParams.has('itemId')) id = hashParams.get('itemId');
+        }
+
+        if (!id) {
+             // Check Query Params (e.g. ?id=...)
+             const searchParams = new URLSearchParams(window.location.search);
+             if (searchParams.has('id')) id = searchParams.get('id');
+             else if (searchParams.has('videoId')) id = searchParams.get('videoId');
+             else if (searchParams.has('itemId')) id = searchParams.get('itemId');
+        }
+
+        if (id) return id;
 
         // Priority 4: Network interception cache
         if (lastDetectedItemId) return lastDetectedItemId;
@@ -235,8 +297,7 @@
             currentSegments = []; // Clear old segments
             fetchSegments(newItemId);
         } else if (!newItemId && currentItemId) {
-            // Keep currentItemId if we can't find a new one, but warn
-            // console.warn('[Parental Skipper] Could not detect item ID, keeping previous:', currentItemId);
+            // Keep currentItemId if we can't find a new one
         }
     }
 
@@ -255,10 +316,7 @@
         console.log('[Parental Skipper] 🎥 Video Element Attached');
 
         // Listeners
-        // timeupdate fires ~4 times per second during playback
         video.addEventListener('timeupdate', checkForSkip);
-
-        // Check for item change on play/load
         video.addEventListener('play', onVideoStateChange);
         video.addEventListener('loadeddata', onVideoStateChange);
 
@@ -268,51 +326,78 @@
     }
 
     // --- Mutation Observer ---
-    // This is the robust way to handle SPA navigation and dynamic player creation
-    const observer = new MutationObserver((mutations) => {
-        let videoFound = false;
+    function initObserver() {
+        if (!document.body) {
+            setTimeout(initObserver, 100);
+            return;
+        }
 
-        // Check if video was added
-        for (const mutation of mutations) {
-            for (const node of mutation.addedNodes) {
-                if (node.nodeName === 'VIDEO') {
-                    attachToVideo(node);
-                    videoFound = true;
-                } else if (node.querySelectorAll) {
-                    const v = node.querySelector('video');
-                    if (v) {
-                        attachToVideo(v);
+        const observer = new MutationObserver((mutations) => {
+            let videoFound = false;
+
+            for (const mutation of mutations) {
+                if (videoFound) break; // Optimization: Stop if we found a video in this batch
+
+                for (const node of mutation.addedNodes) {
+                    if (node.nodeType !== Node.ELEMENT_NODE) continue;
+
+                    if (node.nodeName === 'VIDEO') {
+                        attachToVideo(node);
                         videoFound = true;
+                        break;
+                    }
+
+                    // Optimization: Only querySelector if node might contain video (skip small text nodes etc, handled by nodeType check)
+                    // and check children
+                    if (node.getElementsByTagName) { // Ensure it's an element that can have children
+                        const v = node.querySelector('video');
+                        if (v) {
+                            attachToVideo(v);
+                            videoFound = true;
+                            break;
+                        }
                     }
                 }
             }
-        }
 
-        // Fallback: If no video added, check if one exists in DOM that we missed
-        if (!videoFound && !document.body.contains(videoElement)) {
-            const v = document.querySelector('video');
-            if (v) attachToVideo(v);
-        }
-    });
+            // Fallback
+            if (!videoFound && !document.body.contains(videoElement)) {
+                const v = document.querySelector('video');
+                if (v) attachToVideo(v);
+            }
+        });
 
-    // Start Observing
-    observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    // Initialize
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initObserver);
+    } else {
+        initObserver();
+    }
 
     // Initial Scan
     const initialVideo = document.querySelector('video');
     if (initialVideo) attachToVideo(initialVideo);
 
     // Global URL change detection (SPA)
+    // We use a persistent interval because handling 'popstate'/'hashchange' isn't enough for all SPA frameworks.
+    // However, to prevent memory leaks in case this script is re-injected (unlikely in this context but possible),
+    // we can attach it to the window object to clear previous ones.
+    if (window._parentalSkipperInterval) {
+        clearInterval(window._parentalSkipperInterval);
+    }
+
     let lastUrl = window.location.href;
-    setInterval(() => {
+    window._parentalSkipperInterval = setInterval(() => {
         if (window.location.href !== lastUrl) {
             lastUrl = window.location.href;
             console.log('[Parental Skipper] 🧭 URL Changed');
-            // Give a small delay for DOM to update, then force check
             setTimeout(() => {
                 const v = document.querySelector('video');
-                if (v) attachToVideo(v); // Re-attach or re-verify
-                onVideoStateChange(); // Re-check item ID
+                if (v) attachToVideo(v);
+                onVideoStateChange();
             }, 500);
         }
     }, 1000);

@@ -5,7 +5,7 @@
     const existingOverlay = document.querySelector('div[style*="background:purple"]');
     if (existingOverlay) existingOverlay.remove();
 
-    console.log('%c[Parental Skipper] Script loaded and initialized (v3.0).', 'color: #8b5cf6; font-size: 14px; font-weight: bold;');
+    console.log('%c[Parental Skipper] Script loaded and initialized (v3.1).', 'color: #8b5cf6; font-size: 14px; font-weight: bold;');
 
     // State
     let currentSegments = [];
@@ -110,14 +110,14 @@
         button.type = 'button';
         button.id = 'parental-skipper-menu-item';
         button.className = 'listItem listItem-button actionSheetMenuItem emby-button';
+        button.setAttribute('data-id', 'parentalskipper');
+
+        // Exact structure requested by user
         button.innerHTML = `
-            <div class="listItemBody">
-                <div class="listItemBodyText">Parental Skipper</div>
-                <div class="listItemBodyText secondary">${isEnabled ? 'Enabled' : 'Disabled'}</div>
+            <div class="listItemBody actionsheetListItemBody">
+                <div class="listItemBodyText actionSheetItemText">Parental Skipper</div>
             </div>
-            <div class="listItemIconContainer">
-                <span class="material-icons listItemIcon">${isEnabled ? 'check_circle' : 'cancel'}</span>
-            </div>
+            <div class="listItemAside actionSheetItemAsideText">${isEnabled ? 'On' : 'Off'}</div>
         `;
 
         // Add click handler
@@ -127,21 +127,13 @@
             localStorage.setItem('parentalSkipperEnabled', isEnabled);
 
             // Update UI
-            const secondaryText = button.querySelector('.listItemBodyText.secondary');
-            const icon = button.querySelector('.listItemIcon');
-
-            if (secondaryText) secondaryText.textContent = isEnabled ? 'Enabled' : 'Disabled';
-            if (icon) icon.textContent = isEnabled ? 'check_circle' : 'cancel';
+            const asideText = button.querySelector('.actionSheetItemAsideText');
+            if (asideText) asideText.textContent = isEnabled ? 'On' : 'Off';
 
             console.log(`[Parental Skipper] Toggled: ${isEnabled ? 'ON' : 'OFF'}`);
-
-            // Close menu (optional, mimics native behavior)
-            // const dialog = scroller.closest('.dialog');
-            // if (dialog && dialog.close) dialog.close();
         });
 
-        // Insert at the top or after Playback Speed
-        // Try to find a good spot, otherwise prepend
+        // Insert at the top
         scroller.insertBefore(button, scroller.firstChild);
     }
 
@@ -149,22 +141,15 @@
         if (settingsMenuObserver) return;
 
         // Watch the document body for the creation of the settings dialog
-        // The dialog usually has class "actionSheet" and contains "actionSheetScroller"
         settingsMenuObserver = new MutationObserver((mutations) => {
             for (const mutation of mutations) {
                 for (const node of mutation.addedNodes) {
                     if (node.nodeType !== Node.ELEMENT_NODE) continue;
 
-                    // Check if this is the settings dialog or contains it
-                    // Jellyfin usually creates a div with class "dialogContainer" or similar
-
                     // We look for the scroller directly
                     const scroller = node.classList?.contains('actionSheetScroller') ? node : node.querySelector('.actionSheetScroller');
 
                     if (scroller) {
-                        // Check if this is the Video Settings menu
-                        // It usually contains buttons like "Playback Speed", "Quality", etc.
-                        // We can check the context or just assume if it's during video playback
                         if (videoElement) {
                              // Slight delay to ensure content is rendered
                              setTimeout(() => injectSettingsButton(scroller), 50);
@@ -186,7 +171,7 @@
         const end = segment.End !== undefined ? segment.End : segment.end;
 
         console.log(`[Parental Skipper] 🚫 SKIPPING: ${videoElement.currentTime.toFixed(1)}s -> ${end}s`);
-        // Notification Removed per user request
+        // Notification REMOVED
 
         // Seek
         videoElement.currentTime = end + 0.5; // +0.5s buffer

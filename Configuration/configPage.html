@@ -304,6 +304,12 @@
                         return;
                     }
 
+                    // Normalize Keys to lowercase for easier lookup (since we suspect ID mismatch)
+                    var segmentsMap = {};
+                    itemIds.forEach(function(key) {
+                        segmentsMap[key.toLowerCase()] = groupedSegments[key];
+                    });
+
                     // Fetch item details from Jellyfin
                     var apiClient = getApiClient();
                     apiClient.getItems(apiClient.getCurrentUserId(), {
@@ -313,8 +319,14 @@
                         loader.style.display = 'none';
                         var items = result.Items;
 
+                        if (!items || items.length === 0) {
+                             container.innerHTML = '<div style="color: #ccc;">Items found in DB but not in Library (Ids might have changed?).</div>';
+                             return;
+                        }
+
                         items.forEach(function(item) {
-                            var itemSegments = groupedSegments[item.Id];
+                            var itemIdLower = item.Id.toLowerCase();
+                            var itemSegments = segmentsMap[itemIdLower] || [];
                             var count = itemSegments.length;
 
                             var card = document.createElement('div');
@@ -370,7 +382,7 @@
                 }).catch(function(err) {
                     console.error(err);
                     loader.style.display = 'none';
-                    container.innerHTML = '<div style="color: red;">Error loading items.</div>';
+                    container.innerHTML = '<div style="color: red;">Error loading items. Check console.</div>';
                 });
             }
 

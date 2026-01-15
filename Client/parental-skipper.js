@@ -1,37 +1,20 @@
 (function () {
     'use strict';
 
-    // DEBUG: Visual indicator that script is loaded
-    function createDebugOverlay() {
-        if (!document.body) {
-            setTimeout(createDebugOverlay, 100);
-            return;
-        }
-        const debugOverlay = document.createElement('div');
-        debugOverlay.style.cssText = 'position:fixed;top:0;left:0;background:purple;color:white;z-index:999999;padding:5px;font-size:12px;pointer-events:none;opacity:0.8;';
-        debugOverlay.textContent = 'Parental Skipper v2.1 Loaded';
-        document.body.appendChild(debugOverlay);
-        setTimeout(() => debugOverlay.remove(), 5000);
-    }
+    // Remove Debug Overlay
+    const existingOverlay = document.querySelector('div[style*="background:purple"]');
+    if (existingOverlay) existingOverlay.remove();
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', createDebugOverlay);
-    } else {
-        createDebugOverlay();
-    }
-
-    console.log('%c[Parental Skipper] Script loaded and initialized (v2.1).', 'color: #8b5cf6; font-size: 14px; font-weight: bold;');
+    console.log('%c[Parental Skipper] Script loaded and initialized (v3.0).', 'color: #8b5cf6; font-size: 14px; font-weight: bold;');
 
     // State
     let currentSegments = [];
     let currentItemId = null;
     let isSkipping = false;
     let isEnabled = localStorage.getItem('parentalSkipperEnabled') !== 'false'; // Default ON
-    let toggleButton = null;
-    let skipNotification = null;
-    let notificationTimeout = null; // For clearing pending removals
     let videoElement = null;
     let lastDetectedItemId = null;
+    let settingsMenuObserver = null;
 
     // --- Network Interception for Item ID Detection ---
     const originalFetch = window.fetch;
@@ -52,15 +35,6 @@
     };
 
     function extractItemIdFromUrlString(url, source) {
-        // Look for item ID in URL patterns
-        // Common patterns: /Items/{id}, /PlaybackInfo?ItemId={id}, etc.
-        // GUIDs are usually 32 hex chars (sometimes with dashes). Jellyfin uses 32 hex chars.
-        // But the comment suggests allowing standard UUID format (36 chars) as well.
-        // Matches:
-        // 1. /Items/xxxxxxxx...
-        // 2. id=xxxxxxxx... or ItemId=xxxxxxxx...
-
-        // Regex for 32 hex chars OR 36 chars (standard UUID with dashes)
         const uuidPattern = '([a-f0-9]{32}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})';
         const urlRegex = new RegExp(`\\/Items\\/${uuidPattern}`, 'i');
         const paramRegex = new RegExp(`[?&](?:ItemId|id)=${uuidPattern}`, 'i');
@@ -68,7 +42,6 @@
         const itemMatch = url.match(urlRegex) || url.match(paramRegex);
 
         if (itemMatch && itemMatch[1]) {
-            // Filter out user IDs if possible
             if (!url.includes('/Users/') || url.includes('/Items/')) {
                 if (lastDetectedItemId !== itemMatch[1]) {
                     lastDetectedItemId = itemMatch[1];
@@ -115,7 +88,6 @@
             .then(segments => {
                 currentSegments = segments || [];
                 console.log(`[Parental Skipper] ✅ Loaded ${currentSegments.length} segments for ${itemId}`);
-                updateToggleButtonBadge();
 
                 // If we have segments, run a check immediately in case we are already in one
                 if (currentSegments.length > 0 && videoElement) {
@@ -127,82 +99,83 @@
             });
     }
 
-    // --- UI Elements ---
-    function showSkipNotification(segment) {
-        // Clear pending removal
-        if (notificationTimeout) {
-            clearTimeout(notificationTimeout);
-            notificationTimeout = null;
-        }
+    // --- Settings Menu Integration ---
+    function injectSettingsButton(scroller) {
+        // Prevent duplicate injection
+        if (scroller.querySelector('#parental-skipper-menu-item')) return;
 
-        const existing = document.getElementById('parental-skipper-notification');
-        if (existing) existing.remove();
+        console.log('[Parental Skipper] Injecting settings button...');
 
-        skipNotification = document.createElement('div');
-        skipNotification.id = 'parental-skipper-notification';
-        skipNotification.style.cssText = `
-            position: fixed; top: 10%; left: 50%; transform: translateX(-50%);
-            background: rgba(220, 38, 38, 0.9); color: white; padding: 12px 24px;
-            border-radius: 8px; font-size: 16px; font-weight: bold; z-index: 999999;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5); pointer-events: none;
-            font-family: sans-serif; transition: opacity 0.5s;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.id = 'parental-skipper-menu-item';
+        button.className = 'listItem listItem-button actionSheetMenuItem emby-button';
+        button.innerHTML = `
+            <div class="listItemBody">
+                <div class="listItemBodyText">Parental Skipper</div>
+                <div class="listItemBodyText secondary">${isEnabled ? 'Enabled' : 'Disabled'}</div>
+            </div>
+            <div class="listItemIconContainer">
+                <span class="material-icons listItemIcon">${isEnabled ? 'check_circle' : 'cancel'}</span>
+            </div>
         `;
 
-        const reason = segment.Reason || 'Restricted Content';
-        skipNotification.innerHTML = `⏩ Skipping: ${reason}`;
-        if (document.body) {
-            document.body.appendChild(skipNotification);
-        }
-
-        // Set new removal timeout
-        notificationTimeout = setTimeout(() => {
-            if (skipNotification && skipNotification.parentNode) {
-                skipNotification.style.opacity = '0';
-                setTimeout(() => {
-                    if (skipNotification) skipNotification.remove();
-                    skipNotification = null;
-                }, 500);
-            }
-            notificationTimeout = null;
-        }, 3000);
-    }
-
-    function createToggleButton() {
-        if (!document.body) return; // Wait for body
-        if (document.getElementById('parental-skipper-toggle')) return;
-
-        toggleButton = document.createElement('button');
-        toggleButton.id = 'parental-skipper-toggle';
-        toggleButton.style.cssText = `
-            position: fixed; bottom: 80px; right: 20px;
-            background: ${isEnabled ? '#22c55e' : '#6b7280'};
-            color: white; border: none; padding: 10px 16px;
-            border-radius: 8px; font-size: 14px; font-weight: bold;
-            cursor: pointer; z-index: 999998; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-            font-family: sans-serif; transition: background 0.2s, transform 0.1s;
-        `;
-
-        updateToggleButtonBadge();
-
-        toggleButton.onclick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
+        // Add click handler
+        button.addEventListener('click', function(e) {
+            // Toggle
             isEnabled = !isEnabled;
             localStorage.setItem('parentalSkipperEnabled', isEnabled);
-            toggleButton.style.background = isEnabled ? '#22c55e' : '#6b7280';
-            updateToggleButtonBadge();
-            console.log(`[Parental Skipper] Toggled: ${isEnabled ? 'ON' : 'OFF'}`);
-        };
 
-        document.body.appendChild(toggleButton);
+            // Update UI
+            const secondaryText = button.querySelector('.listItemBodyText.secondary');
+            const icon = button.querySelector('.listItemIcon');
+
+            if (secondaryText) secondaryText.textContent = isEnabled ? 'Enabled' : 'Disabled';
+            if (icon) icon.textContent = isEnabled ? 'check_circle' : 'cancel';
+
+            console.log(`[Parental Skipper] Toggled: ${isEnabled ? 'ON' : 'OFF'}`);
+
+            // Close menu (optional, mimics native behavior)
+            // const dialog = scroller.closest('.dialog');
+            // if (dialog && dialog.close) dialog.close();
+        });
+
+        // Insert at the top or after Playback Speed
+        // Try to find a good spot, otherwise prepend
+        scroller.insertBefore(button, scroller.firstChild);
     }
 
-    function updateToggleButtonBadge() {
-        if (!toggleButton) return;
-        const count = currentSegments.length;
-        toggleButton.innerHTML = isEnabled
-            ? `🛡️ ON${count > 0 ? ` <span style="font-size:0.9em;opacity:0.9">(${count})</span>` : ''}`
-            : '🛡️ OFF';
+    function initSettingsObserver() {
+        if (settingsMenuObserver) return;
+
+        // Watch the document body for the creation of the settings dialog
+        // The dialog usually has class "actionSheet" and contains "actionSheetScroller"
+        settingsMenuObserver = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                for (const node of mutation.addedNodes) {
+                    if (node.nodeType !== Node.ELEMENT_NODE) continue;
+
+                    // Check if this is the settings dialog or contains it
+                    // Jellyfin usually creates a div with class "dialogContainer" or similar
+
+                    // We look for the scroller directly
+                    const scroller = node.classList?.contains('actionSheetScroller') ? node : node.querySelector('.actionSheetScroller');
+
+                    if (scroller) {
+                        // Check if this is the Video Settings menu
+                        // It usually contains buttons like "Playback Speed", "Quality", etc.
+                        // We can check the context or just assume if it's during video playback
+                        if (videoElement) {
+                             // Slight delay to ensure content is rendered
+                             setTimeout(() => injectSettingsButton(scroller), 50);
+                        }
+                    }
+                }
+            }
+        });
+
+        settingsMenuObserver.observe(document.body, { childList: true, subtree: true });
+        console.log('[Parental Skipper] Settings menu observer started');
     }
 
     // --- Core Logic ---
@@ -213,16 +186,14 @@
         const end = segment.End !== undefined ? segment.End : segment.end;
 
         console.log(`[Parental Skipper] 🚫 SKIPPING: ${videoElement.currentTime.toFixed(1)}s -> ${end}s`);
-        showSkipNotification(segment);
+        // Notification Removed per user request
 
         // Seek
         videoElement.currentTime = end + 0.5; // +0.5s buffer
 
-        // Cooldown - ensure we don't double skip if the seek lands slightly early or segment is short
+        // Cooldown
         setTimeout(() => {
-            // Verify we are past the segment
             if (videoElement && videoElement.currentTime < end) {
-                 // If for some reason we are still in it, push forward again
                  videoElement.currentTime = end + 0.5;
             }
             isSkipping = false;
@@ -248,23 +219,17 @@
 
     // --- Item Detection ---
     function tryDetectItem() {
-        // Priority 1: Window.playbackManager (Jellyfin 10.9+)
         if (window.playbackManager?.currentItem) {
             const item = window.playbackManager.currentItem();
             if (item && item.Id) return item.Id;
         }
 
-        // Priority 2: ApiClient._playbackManager
         if (window.ApiClient?._playbackManager?.currentItem) {
             const item = window.ApiClient._playbackManager.currentItem();
             if (item && item.Id) return item.Id;
         }
 
-        // Priority 3: URL params
-        // Check both hash params (typical in Jellyfin SPA) and search params (direct links)
         let id = null;
-
-        // Check Hash Params (e.g. #/video?id=...)
         if (window.location.hash && window.location.hash.includes('?')) {
             const hashParams = new URLSearchParams(window.location.hash.split('?')[1]);
             if (hashParams.has('id')) id = hashParams.get('id');
@@ -273,7 +238,6 @@
         }
 
         if (!id) {
-             // Check Query Params (e.g. ?id=...)
              const searchParams = new URLSearchParams(window.location.search);
              if (searchParams.has('id')) id = searchParams.get('id');
              else if (searchParams.has('videoId')) id = searchParams.get('videoId');
@@ -281,8 +245,6 @@
         }
 
         if (id) return id;
-
-        // Priority 4: Network interception cache
         if (lastDetectedItemId) return lastDetectedItemId;
 
         return null;
@@ -296,8 +258,6 @@
             currentItemId = newItemId;
             currentSegments = []; // Clear old segments
             fetchSegments(newItemId);
-        } else if (!newItemId && currentItemId) {
-            // Keep currentItemId if we can't find a new one
         }
     }
 
@@ -306,7 +266,6 @@
         if (videoElement === video) return;
 
         if (videoElement) {
-            // Clean up old listeners
             videoElement.removeEventListener('timeupdate', checkForSkip);
             videoElement.removeEventListener('play', onVideoStateChange);
             videoElement.removeEventListener('loadeddata', onVideoStateChange);
@@ -315,14 +274,14 @@
         videoElement = video;
         console.log('[Parental Skipper] 🎥 Video Element Attached');
 
-        // Listeners
         video.addEventListener('timeupdate', checkForSkip);
         video.addEventListener('play', onVideoStateChange);
         video.addEventListener('loadeddata', onVideoStateChange);
 
-        // Initial check
         onVideoStateChange();
-        createToggleButton();
+
+        // Ensure settings observer is running
+        initSettingsObserver();
     }
 
     // --- Mutation Observer ---
@@ -336,7 +295,7 @@
             let videoFound = false;
 
             for (const mutation of mutations) {
-                if (videoFound) break; // Optimization: Stop if we found a video in this batch
+                if (videoFound) break;
 
                 for (const node of mutation.addedNodes) {
                     if (node.nodeType !== Node.ELEMENT_NODE) continue;
@@ -347,9 +306,7 @@
                         break;
                     }
 
-                    // Optimization: Only querySelector if node might contain video (skip small text nodes etc, handled by nodeType check)
-                    // and check children
-                    if (node.getElementsByTagName) { // Ensure it's an element that can have children
+                    if (node.getElementsByTagName) {
                         const v = node.querySelector('video');
                         if (v) {
                             attachToVideo(v);
@@ -360,7 +317,6 @@
                 }
             }
 
-            // Fallback
             if (!videoFound && !document.body.contains(videoElement)) {
                 const v = document.querySelector('video');
                 if (v) attachToVideo(v);
@@ -368,23 +324,20 @@
         });
 
         observer.observe(document.body, { childList: true, subtree: true });
+
+        // Also start the settings observer
+        initSettingsObserver();
     }
 
-    // Initialize
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initObserver);
     } else {
         initObserver();
     }
 
-    // Initial Scan
     const initialVideo = document.querySelector('video');
     if (initialVideo) attachToVideo(initialVideo);
 
-    // Global URL change detection (SPA)
-    // We use a persistent interval because handling 'popstate'/'hashchange' isn't enough for all SPA frameworks.
-    // However, to prevent memory leaks in case this script is re-injected (unlikely in this context but possible),
-    // we can attach it to the window object to clear previous ones.
     if (window._parentalSkipperInterval) {
         clearInterval(window._parentalSkipperInterval);
     }

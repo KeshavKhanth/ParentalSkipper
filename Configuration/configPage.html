@@ -2,8 +2,14 @@
     <div data-role="content">
         <div class="content-primary">
             <h1>Parental Skipper Configuration</h1>
+
+            <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+                <button is="emby-button" type="button" class="raised" id="tabManage" style="background: #00a4dc;">Manage Scenes</button>
+                <button is="emby-button" type="button" class="raised" id="tabConfigured" style="background: #333;">My Configured Items</button>
+            </div>
             
-            <div class="verticalSection">
+            <!-- Manage Section -->
+            <div id="manageSection" class="verticalSection">
                 <h2>Manage Restricted Scenes</h2>
                 <div class="inputContainer" style="position: relative;">
                     <label class="inputLabel" for="txtSearch">Search Movie / Series</label>
@@ -78,6 +84,14 @@
                         <button is="emby-button" type="button" class="raised" id="btnAddSegment">Add Segment</button>
                     </div>
                 </div>
+            </div>
+
+            <!-- Configured Items Section -->
+            <div id="configuredSection" class="verticalSection" style="display: none;">
+                 <h2>My Configured Items</h2>
+                 <p style="color: #ccc; margin-bottom: 20px;">Items with active skip segments.</p>
+                 <div id="loadingConfigured" style="display: none;">Loading...</div>
+                 <div id="configuredList" style="display: flex; flex-direction: column; gap: 15px;"></div>
             </div>
             
             <div class="verticalSection" style="margin-top:30px;">
@@ -181,6 +195,14 @@
                 });
             }
 
+            function loadAllSegments() {
+                var apiClient = getApiClient();
+                var url = apiClient.serverAddress() + '/ParentalSkipper/Segments';
+                return fetchWithAuth(url, 'GET').then(function(response) {
+                    return response.json();
+                });
+            }
+
             function addSegment(itemId, start, end, reason) {
                 var apiClient = getApiClient();
                 var url = apiClient.serverAddress() + '/ParentalSkipper/Segments';
@@ -264,6 +286,92 @@
                 document.querySelector('#editorSection').style.display = 'block';
                 document.querySelector('#editorSection').scrollIntoView({ behavior: 'smooth' });
                 loadSegments(itemId).then(renderSegments);
+            }
+
+            // Render Configured Items
+            function renderConfiguredItems() {
+                var container = document.querySelector('#configuredList');
+                var loader = document.querySelector('#loadingConfigured');
+
+                container.innerHTML = '';
+                loader.style.display = 'block';
+
+                loadAllSegments().then(function(groupedSegments) {
+                    var itemIds = Object.keys(groupedSegments);
+                    if (itemIds.length === 0) {
+                        loader.style.display = 'none';
+                        container.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">No items configured yet.</div>';
+                        return;
+                    }
+
+                    // Fetch item details from Jellyfin
+                    var apiClient = getApiClient();
+                    apiClient.getItems(apiClient.getCurrentUserId(), {
+                        Ids: itemIds.join(','),
+                        Recursive: true
+                    }).then(function(result) {
+                        loader.style.display = 'none';
+                        var items = result.Items;
+
+                        items.forEach(function(item) {
+                            var itemSegments = groupedSegments[item.Id];
+                            var count = itemSegments.length;
+
+                            var card = document.createElement('div');
+                            card.style.cssText = 'background: #1a1a1a; padding: 15px; border-radius: 8px; border: 1px solid #333;';
+
+                            var header = document.createElement('div');
+                            header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; cursor: pointer;';
+                            header.innerHTML = `
+                                <div>
+                                    <h3 style="margin: 0;">${item.Name} <span style="font-size: 0.8em; color: #888; font-weight: normal;">(${item.ProductionYear || 'Unknown'})</span></h3>
+                                    <div style="font-size: 0.9em; color: #aaa; margin-top: 5px;">${count} Segment${count !== 1 ? 's' : ''}</div>
+                                </div>
+                                <button is="emby-button" type="button" class="raised" style="min-width: 80px;">Expand</button>
+                            `;
+
+                            var details = document.createElement('div');
+                            details.style.cssText = 'display: none; margin-top: 15px; border-top: 1px solid #444; padding-top: 10px;';
+
+                            // Build simple table for details
+                            var table = '<table class="tbl" style="width: 100%; text-align: left;"><thead><tr><th>Start</th><th>End</th><th>Reason</th></tr></thead><tbody>';
+                            itemSegments.forEach(function(s) {
+                                table += `<tr><td>${secondsToTime(s.Start)}</td><td>${secondsToTime(s.End)}</td><td>${s.Reason || '-'}</td></tr>`;
+                            });
+                            table += '</tbody></table>';
+
+                            // Edit Button
+                            var editBtn = document.createElement('button');
+                            editBtn.setAttribute('is', 'emby-button');
+                            editBtn.className = 'raised';
+                            editBtn.style.cssText = 'margin-top: 10px; width: 100%; background: #00a4dc;';
+                            editBtn.textContent = 'Edit Segments';
+                            editBtn.onclick = function() {
+                                // Switch to manage tab
+                                document.querySelector('#tabManage').click();
+                                // Select this item
+                                selectItem(item.Id, item.Name, item.Type);
+                            };
+
+                            details.innerHTML = table;
+                            details.appendChild(editBtn);
+
+                            header.onclick = function() {
+                                var isHidden = details.style.display === 'none';
+                                details.style.display = isHidden ? 'block' : 'none';
+                                header.querySelector('button').textContent = isHidden ? 'Collapse' : 'Expand';
+                            };
+
+                            card.appendChild(header);
+                            card.appendChild(details);
+                            container.appendChild(card);
+                        });
+                    });
+                }).catch(function(err) {
+                    console.error(err);
+                    loader.style.display = 'none';
+                    container.innerHTML = '<div style="color: red;">Error loading items.</div>';
+                });
             }
 
             // Render movie results
@@ -471,6 +579,27 @@
                 var selectEpisode = page.querySelector('#selectEpisode');
                 var btnSelectEpisode = page.querySelector('#btnSelectEpisode');
                 var suggestions = page.querySelector('#searchSuggestions');
+
+                // Tab switching
+                var tabManage = page.querySelector('#tabManage');
+                var tabConfigured = page.querySelector('#tabConfigured');
+                var sectionManage = page.querySelector('#manageSection');
+                var sectionConfigured = page.querySelector('#configuredSection');
+
+                tabManage.addEventListener('click', function() {
+                    tabManage.style.background = '#00a4dc';
+                    tabConfigured.style.background = '#333';
+                    sectionManage.style.display = 'block';
+                    sectionConfigured.style.display = 'none';
+                });
+
+                tabConfigured.addEventListener('click', function() {
+                    tabConfigured.style.background = '#00a4dc';
+                    tabManage.style.background = '#333';
+                    sectionManage.style.display = 'none';
+                    sectionConfigured.style.display = 'block';
+                    renderConfiguredItems();
+                });
 
                 // Live search with debounce
                 txtSearch.addEventListener('input', function() {

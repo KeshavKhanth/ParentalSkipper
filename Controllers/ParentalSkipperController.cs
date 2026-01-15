@@ -73,6 +73,26 @@ namespace ParentalSkipper.Controllers
         }
 
         /// <summary>
+        /// Gets all configured segments grouped by item.
+        /// </summary>
+        /// <returns>Dictionary of segments keyed by ItemId.</returns>
+        [HttpGet("Segments")]
+        [Authorize(Policy = "RequiresElevation")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public ActionResult<Dictionary<Guid, List<Segment>>> GetAllSegments()
+        {
+            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance!.DbPath);
+            var segments = db.Segments.ToList();
+
+            var grouped = segments
+                .GroupBy(s => s.ItemId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            _logger.LogInformation("[Parental Skipper] Retrieved all segments for {Count} items", grouped.Count);
+            return Ok(grouped);
+        }
+
+        /// <summary>
         /// Adds a new segment for a media item and triggers segment refresh.
         /// </summary>
         /// <param name="request">Segment data.</param>

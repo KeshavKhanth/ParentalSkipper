@@ -215,17 +215,31 @@
         console.log(`[Parental Skipper] 🚫 SKIPPING: ${videoElement.currentTime.toFixed(1)}s -> ${end}s`);
         showSkipNotification(segment);
 
-        // Seek
-        videoElement.currentTime = end + 0.5; // +0.5s buffer
+        // Seek with buffer to ensure we don't land in the segment again
+        const targetTime = end + 0.5;
+        videoElement.currentTime = targetTime;
 
-        // Cooldown - ensure we don't double skip if the seek lands slightly early or segment is short
+        // Extended cooldown with verification - ensure we don't double skip
+        // Use a longer timeout to handle slow seeks or buffering
         setTimeout(() => {
-            // Verify we are past the segment
-            if (videoElement && videoElement.currentTime < end) {
-                 // If for some reason we are still in it, push forward again
-                 videoElement.currentTime = end + 0.5;
+            if (!videoElement) {
+                isSkipping = false;
+                return;
             }
-            isSkipping = false;
+
+            // Verify we are past the segment, if not push forward again
+            const currentTime = videoElement.currentTime;
+            if (currentTime < end) {
+                console.log(`[Parental Skipper] ⚠️ Seek verification: Still at ${currentTime.toFixed(1)}s, adjusting to ${targetTime}s`);
+                videoElement.currentTime = targetTime;
+
+                // Add additional verification after adjustment
+                setTimeout(() => {
+                    isSkipping = false;
+                }, 500);
+            } else {
+                isSkipping = false;
+            }
         }, 1500);
     }
 
@@ -234,12 +248,24 @@
 
         const currentTime = videoElement.currentTime;
 
+        // Guard against NaN or invalid time values
+        if (!isFinite(currentTime) || currentTime < 0) {
+            return;
+        }
+
         for (const segment of currentSegments) {
             const start = segment.Start !== undefined ? segment.Start : segment.start;
             const end = segment.End !== undefined ? segment.End : segment.end;
 
-            // Check if inside segment
-            if (currentTime >= start && currentTime < end) {
+            // Validate segment data
+            if (!isFinite(start) || !isFinite(end) || start < 0 || end < 0 || start >= end) {
+                console.warn(`[Parental Skipper] Invalid segment data: start=${start}, end=${end}`);
+                continue;
+            }
+
+            // Check if inside segment - use a small tolerance to avoid edge cases
+            const tolerance = 0.1;
+            if (currentTime >= (start - tolerance) && currentTime < end) {
                 performSkip(segment);
                 return;
             }

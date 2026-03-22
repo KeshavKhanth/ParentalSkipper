@@ -46,6 +46,9 @@ namespace ParentalSkipper.Manager
         {
             try
             {
+                // Check for cancellation before starting
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var item = _libraryManager.GetItemById(itemId);
                 if (item == null)
                 {
@@ -53,7 +56,7 @@ namespace ParentalSkipper.Manager
                     return;
                 }
 
-                _logger.LogInformation("[Parental Skipper] Triggering segment update for item {ItemId} ({Name})", 
+                _logger.LogInformation("[Parental Skipper] Triggering segment update for item {ItemId} ({Name})",
                     itemId, item.Name);
 
                 // This tells Jellyfin to query all IMediaSegmentProvider implementations
@@ -63,9 +66,15 @@ namespace ParentalSkipper.Manager
 
                 _logger.LogInformation("[Parental Skipper] Segment update completed for item {ItemId}", itemId);
             }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("[Parental Skipper] Segment update cancelled for item {ItemId}", itemId);
+                throw; // Re-throw to allow caller to handle
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[Parental Skipper] Error updating segments for item {ItemId}", itemId);
+                // Don't re-throw - this is a best-effort operation
             }
         }
     }

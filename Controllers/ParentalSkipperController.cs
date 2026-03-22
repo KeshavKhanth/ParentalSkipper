@@ -64,9 +64,16 @@ namespace ParentalSkipper.Controllers
         [HttpGet("Segments/{itemId}")]
         [AllowAnonymous]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public ActionResult<List<Segment>> GetSegments([FromRoute] Guid itemId)
         {
-            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance!.DbPath);
+            if (Plugin.Instance == null)
+            {
+                _logger.LogError("[Parental Skipper] Plugin instance not available");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Plugin not initialized");
+            }
+
+            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance.DbPath);
             var segments = db.Segments.Where(s => s.ItemId == itemId).ToList();
             _logger.LogInformation("[Parental Skipper] Retrieved {Count} segments for item {ItemId}", segments.Count, itemId);
             return Ok(segments);
@@ -81,17 +88,52 @@ namespace ParentalSkipper.Controllers
         [Authorize(Policy = "RequiresElevation")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         [Consumes(MediaTypeNames.Application.Json)]
         public async Task<ActionResult> AddSegment([FromBody] SegmentDto request)
         {
-            // Simple validation
+            if (Plugin.Instance == null)
+            {
+                _logger.LogError("[Parental Skipper] Plugin instance not available");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Plugin not initialized");
+            }
+
+            // Enhanced validation
+            if (request.Start < 0)
+            {
+                _logger.LogWarning("[Parental Skipper] Invalid segment: Start {Start} is negative", request.Start);
+                return BadRequest("Start time must be non-negative.");
+            }
+
+            if (request.End < 0)
+            {
+                _logger.LogWarning("[Parental Skipper] Invalid segment: End {End} is negative", request.End);
+                return BadRequest("End time must be non-negative.");
+            }
+
             if (request.Start >= request.End)
             {
                 _logger.LogWarning("[Parental Skipper] Invalid segment: Start {Start} >= End {End}", request.Start, request.End);
                 return BadRequest("Start time must be less than End time.");
             }
 
-            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance!.DbPath);
+            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance.DbPath);
+
+            // Check for overlapping segments
+            var existingSegments = db.Segments.Where(s => s.ItemId == request.ItemId).ToList();
+            foreach (var existing in existingSegments)
+            {
+                // Check if new segment overlaps with existing segment
+                if ((request.Start >= existing.Start && request.Start < existing.End) ||
+                    (request.End > existing.Start && request.End <= existing.End) ||
+                    (request.Start <= existing.Start && request.End >= existing.End))
+                {
+                    _logger.LogWarning("[Parental Skipper] Segment overlaps with existing segment {Id}: {Start}s - {End}s",
+                        existing.Id, existing.Start, existing.End);
+                    return BadRequest($"Segment overlaps with existing segment (ID: {existing.Id}, {existing.Start}s - {existing.End}s). Please delete or modify the existing segment first.");
+                }
+            }
+
             var segment = new Segment
             {
                 ItemId = request.ItemId,
@@ -101,13 +143,13 @@ namespace ParentalSkipper.Controllers
             };
             db.Segments.Add(segment);
             db.SaveChanges();
-            
-            _logger.LogInformation("[Parental Skipper] Added segment for item {ItemId}: {Start}s - {End}s", 
+
+            _logger.LogInformation("[Parental Skipper] Added segment for item {ItemId}: {Start}s - {End}s",
                 request.ItemId, request.Start, request.End);
 
             // Trigger Jellyfin to refresh segments for this item
             await _segmentUpdateManager.UpdateSegmentsForItemAsync(request.ItemId).ConfigureAwait(false);
-            
+
             return Ok();
         }
 
@@ -120,20 +162,27 @@ namespace ParentalSkipper.Controllers
         [Authorize(Policy = "RequiresElevation")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<ActionResult> DeleteSegment([FromRoute] int id)
         {
-            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance!.DbPath);
+            if (Plugin.Instance == null)
+            {
+                _logger.LogError("[Parental Skipper] Plugin instance not available");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Plugin not initialized");
+            }
+
+            using var db = new Data.ParentalSkipperDbContext(Plugin.Instance.DbPath);
             var segment = db.Segments.Find(id);
             if (segment == null)
             {
                 _logger.LogWarning("[Parental Skipper] Segment {Id} not found for deletion", id);
                 return NotFound();
             }
-            
+
             var itemId = segment.ItemId;
-            _logger.LogInformation("[Parental Skipper] Deleted segment {Id} for item {ItemId}", 
+            _logger.LogInformation("[Parental Skipper] Deleted segment {Id} for item {ItemId}",
                 segment.Id, segment.ItemId);
-            
+
             db.Segments.Remove(segment);
             db.SaveChanges();
 

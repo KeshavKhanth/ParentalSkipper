@@ -129,6 +129,27 @@ namespace ParentalSkipper.Services
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "ParentalSkipper_injection.log");
 
+        // Thread-safe logging lock
+        private static readonly object LogLock = new object();
+
+        /// <summary>
+        /// Thread-safe log append method.
+        /// </summary>
+        private static void AppendLog(string message)
+        {
+            try
+            {
+                lock (LogLock)
+                {
+                    System.IO.File.AppendAllText(LogFile, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}\n");
+                }
+            }
+            catch
+            {
+                // Silently ignore logging errors
+            }
+        }
+
         /// <summary>
         /// Callback method for File Transformation Plugin to inject the client script.
         /// This is called by the File Transformation Plugin when serving index.html.
@@ -139,23 +160,27 @@ namespace ParentalSkipper.Services
         {
             try
             {
-                System.IO.File.AppendAllText(LogFile, $"[{DateTime.Now}] InjectScript called\n");
+                AppendLog("InjectScript called");
 
-                ArgumentNullException.ThrowIfNull(payload);
+                if (payload == null)
+                {
+                    AppendLog("ERROR: Payload is null");
+                    throw new ArgumentNullException(nameof(payload));
+                }
 
                 string contents = payload.Contents ?? string.Empty;
-                System.IO.File.AppendAllText(LogFile, $"[{DateTime.Now}] Contents length: {contents.Length}\n");
+                AppendLog($"Contents length: {contents.Length}");
 
                 if (string.IsNullOrEmpty(contents))
                 {
-                    System.IO.File.AppendAllText(LogFile, $"[{DateTime.Now}] Contents empty, returning\n");
+                    AppendLog("Contents empty, returning");
                     return contents;
                 }
 
                 // Check if already injected
-                if (contents.Contains("/ParentalSkipper/ClientScript"))
+                if (contents.Contains("/ParentalSkipper/ClientScript", StringComparison.OrdinalIgnoreCase))
                 {
-                    System.IO.File.AppendAllText(LogFile, $"[{DateTime.Now}] Script already injected\n");
+                    AppendLog("Script already injected");
                     return contents;
                 }
 
@@ -163,22 +188,18 @@ namespace ParentalSkipper.Services
                 var bodyEndIndex = contents.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
                 if (bodyEndIndex == -1)
                 {
-                    System.IO.File.AppendAllText(LogFile, $"[{DateTime.Now}] No </body> tag found\n");
+                    AppendLog("No </body> tag found");
                     return contents;
                 }
 
                 var fullScriptTag = $"{ScriptMarker}\n    {ScriptTag}";
                 var result = contents.Insert(bodyEndIndex, $"{fullScriptTag}\n    ");
-                System.IO.File.AppendAllText(LogFile, $"[{DateTime.Now}] Script injected successfully, new length: {result.Length}\n");
+                AppendLog($"Script injected successfully, new length: {result.Length}");
                 return result;
             }
             catch (Exception ex)
             {
-                try
-                {
-                    System.IO.File.AppendAllText(LogFile, $"[{DateTime.Now}] ERROR: {ex.Message}\n{ex.StackTrace}\n");
-                }
-                catch { }
+                AppendLog($"ERROR: {ex.Message}\n{ex.StackTrace}");
                 throw;
             }
         }

@@ -38,34 +38,47 @@ namespace ParentalSkipper.Data
 
         public void Initialize()
         {
-            Database.EnsureCreated();
-            
-            // Add Reason column if it doesn't exist (migration for existing databases)
             try
             {
+                Database.EnsureCreated();
+
+                // Add Reason column if it doesn't exist (migration for existing databases)
                 using var connection = Database.GetDbConnection();
                 connection.Open();
-                using var command = connection.CreateCommand();
-                
-                // Check if Reason column exists
-                command.CommandText = "PRAGMA table_info(Segments)";
-                using var reader = command.ExecuteReader();
-                bool reasonExists = false;
-                while (reader.Read())
+
+                try
                 {
-                    if (reader.GetString(1) == "Reason")
+                    using var command = connection.CreateCommand();
+
+                    // Check if Reason column exists
+                    command.CommandText = "PRAGMA table_info(Segments)";
+                    bool reasonExists = false;
+
+                    using (var reader = command.ExecuteReader())
                     {
-                        reasonExists = true;
-                        break;
+                        while (reader.Read())
+                        {
+                            if (reader.GetString(1) == "Reason")
+                            {
+                                reasonExists = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Add Reason column if missing
+                    if (!reasonExists)
+                    {
+                        command.CommandText = "ALTER TABLE Segments ADD COLUMN Reason TEXT NULL";
+                        command.ExecuteNonQuery();
                     }
                 }
-                reader.Close();
-                
-                // Add Reason column if missing
-                if (!reasonExists)
+                finally
                 {
-                    command.CommandText = "ALTER TABLE Segments ADD COLUMN Reason TEXT NULL";
-                    command.ExecuteNonQuery();
+                    if (connection.State == System.Data.ConnectionState.Open)
+                    {
+                        connection.Close();
+                    }
                 }
             }
             catch (Exception)
